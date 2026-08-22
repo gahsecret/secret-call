@@ -15,7 +15,7 @@ app.use(cors());
 app.get('/health', (_, res) => res.json({
   ok: true,
   service: 'Secret Call',
-  version: '1.4.5',
+  version: '1.4.6',
   rooms: rooms?.size ?? 0
 }));
 
@@ -207,6 +207,20 @@ io.on('connection', socket => {
   socket.on('webrtc-ice-candidate', ({ target, candidate }) => {
     io.to(target).emit('webrtc-ice-candidate', { from: socket.id, candidate });
   });
+  // Canal de sinalização separado para compartilhamento de tela.
+  // Isso impede a tela de renegociar/quebrar o PeerConnection de áudio/câmera.
+  socket.on('screen-offer', ({ target, offer }) => {
+    io.to(target).emit('screen-offer', { from: socket.id, offer });
+  });
+  socket.on('screen-answer', ({ target, answer }) => {
+    io.to(target).emit('screen-answer', { from: socket.id, answer });
+  });
+  socket.on('screen-ice-candidate', ({ target, candidate }) => {
+    io.to(target).emit('screen-ice-candidate', { from: socket.id, candidate });
+  });
+  socket.on('screen-share-stop-peer', ({ target }) => {
+    io.to(target).emit('screen-share-stopped', { from: socket.id });
+  });
   socket.on('leave-room', () => leaveCurrentRoom(socket));
   socket.on('disconnect', () => leaveCurrentRoom(socket));
 });
@@ -221,5 +235,5 @@ if (process.env.NODE_ENV === 'production' && process.env.SERVE_CLIENT !== 'false
 
 const PORT = Number(process.env.PORT || 3001);
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Secret Call V1.4.5 rodando na porta ${PORT}`);
+  console.log(`Secret Call V1.4.6 rodando na porta ${PORT}`);
 });

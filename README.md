@@ -1,15 +1,18 @@
-# Secret Call V1.4.5 — Remote Track Fix
+# Secret Call V1.4.6 — Separate Screen Channel
 
-Baseada diretamente na V1.4.1 que apresentou o melhor resultado de áudio.
+Esta versão foi criada diretamente a partir do ZIP exato enviado pelo usuário,
+que estava online com áudio funcionando.
 
-Correção principal:
-- O recebimento remoto não usa mais apenas `event.streams[0]`.
-- Cada `event.track` recebido é colocado manualmente em um MediaStream por participante.
-- Isso evita perder áudio/vídeo quando `RTCTrackEvent.streams` chega vazio.
-- O vídeo remoto chama `play()` explicitamente.
-- A negociação da V1.4.1 foi preservada.
-- TURN e fila ICE foram preservados.
+## Mudança principal
+O compartilhamento de tela agora usa um RTCPeerConnection separado por participante.
 
-Diagnóstico:
-Dentro da call clique em `🔧 Diagnóstico`.
-Para cada pessoa ele mostra conexão, ICE, senders, receivers e tracks realmente recebidas.
+Isso significa:
+- áudio/microfone continuam exatamente no PeerConnection principal;
+- câmera continua no PeerConnection principal;
+- compartilhar/parar tela NÃO renegocia áudio;
+- tela possui Offer/Answer/ICE próprios;
+- TURN configurado no Render é usado também pela tela;
+- até 3 compartilhamentos continuam controlados pelo servidor;
+- a tela aparece como tile separado `NOME • TELA`.
+
+Os package-lock.json existentes no ZIP original foram preservados.

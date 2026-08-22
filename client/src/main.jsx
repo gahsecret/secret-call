@@ -31,6 +31,7 @@ function App() {
   const [sharingCount, setSharingCount] = useState(0);
   const [status, setStatus] = useState('Pronto');
   const [remoteStreams, setRemoteStreams] = useState({});
+  const [remoteScreenStreams, setRemoteScreenStreams] = useState({});
   const [turnEnabled, setTurnEnabled] = useState(false);
   const [peerStates, setPeerStates] = useState({});
   const [diagnostics, setDiagnostics] = useState({});
@@ -47,6 +48,10 @@ function App() {
   const wantsMicRef = useRef(true);
   const wantsCamRef = useRef(true);
   const remoteMediaRef = useRef(new Map());
+  // Compartilhamento usa PeerConnections separados da call.
+  // Assim tela nunca renegocia nem altera o áudio/câmera que já estão funcionando.
+  const screenPeersRef = useRef(new Map());
+  const pendingScreenIceRef = useRef(new Map());
 
   useEffect(() => () => cleanup(), []);
 
@@ -277,6 +282,100 @@ function App() {
     socketRef.current.emit('webrtc-offer', { target: targetId, offer });
   }
 
+
+  function queueScreenIce(peerId, candidate) {
+    if (!pendingScreenIceRef.current.has(peerId)) pendingScreenIceRef.current.set(peerId, []);
+    pendingScreenIceRef.current.get(peerId).push(candidate);
+  }
+
+  async function flushScreenIce(peerId, pc) {
+    const queued = pendingScreenIceRef.current.get(peerId) || [];
+    for (const candidate of queued) {
+      try { await pc.addIceCandidate(candidate); }
+      catch (e) { console.warn('Screen ICE rejeitado:', e); }
+    }
+    pendingScreenIceRef.current.delete(peerId);
+  }
+
+  function createScreenPeer(targetId, receiving = false) {
+    const existing = screenPeersRef.current.get(targetId);
+    if (existing && existing.connectionState !== 'closed') return existing;
+
+    const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
+    pc.onicecandidate = e => {
+      if (e.candidate) {
+        socketRef.current?.emit('screen-ice-candidate', {
+          target: targetId,
+          candidate: e.candidate
+        });
+      }
+    };
+
+    pc.ontrack = e => {
+      if (e.track.kind !== 'video') return;
+      const stream = new MediaStream([e.track]);
+      setRemoteScreenStreams(prev => ({ ...prev, [targetId]: stream }));
+      e.track.onended = () => {
+        setRemoteScreenStreams(prev => {
+          const next = { ...prev };
+          delete next[targetId];
+          return next;
+        });
+      };
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (['failed', 'closed'].includes(pc.connectionState)) {
+        screenPeersRef.current.delete(targetId);
+      }
+    };
+
+    screenPeersRef.current.set(targetId, pc);
+    return pc;
+  }
+
+  async function offerScreenTo(targetId) {
+    const track = screenStreamRef.current?.getVideoTracks()[0];
+    if (!track || targetId === socketRef.current?.id) return;
+
+    let pc = screenPeersRef.current.get(targetId);
+    if (pc && ['connected', 'connecting'].includes(pc.connectionState)) return;
+
+    if (pc) {
+      try { pc.close(); } catch (_) {}
+      screenPeersRef.current.delete(targetId);
+    }
+
+    pc = createScreenPeer(targetId);
+    pc.addTrack(track, screenStreamRef.current);
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socketRef.current?.emit('screen-offer', { target: targetId, offer });
+  }
+
+  async function offerScreenToParticipants(list = participants) {
+    if (!screenStreamRef.current) return;
+    for (const person of list) {
+      if (person.socketId !== socketRef.current?.id) {
+        try { await offerScreenTo(person.socketId); }
+        catch (e) { console.warn('Falha ao enviar tela para', person.socketId, e); }
+      }
+    }
+  }
+
+  function closeScreenPeer(peerId) {
+    const pc = screenPeersRef.current.get(peerId);
+    try { pc?.close(); } catch (_) {}
+    screenPeersRef.current.delete(peerId);
+    pendingScreenIceRef.current.delete(peerId);
+    setRemoteScreenStreams(prev => {
+      const next = { ...prev };
+      delete next[peerId];
+      return next;
+    });
+  }
+
   async function connectSocket() {
     if (socketRef.current?.connected) return socketRef.current;
     const socket = io(SIGNALING, {
@@ -298,6 +397,9 @@ function App() {
     socket.on('participants', list => {
       setParticipants(list);
       setSharingCount(list.filter(p => p.sharing).length);
+      if (screenStreamRef.current) {
+        setTimeout(() => offerScreenToParticipants(list), 0);
+      }
     });
     socket.on('room-code-updated', ({ code, expiresAt }) => {
       setRoomCode(code);
@@ -334,9 +436,56 @@ function App() {
       try { await pc.addIceCandidate(candidate); }
       catch (e) { console.warn('ICE candidate rejeitado:', e); }
     });
+
+    socket.on('screen-offer', async ({ from, offer }) => {
+      try {
+        closeScreenPeer(from);
+        const pc = createScreenPeer(from, true);
+        await pc.setRemoteDescription(offer);
+        await flushScreenIce(from, pc);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('screen-answer', { target: from, answer });
+      } catch (e) {
+        console.error('Falha ao receber compartilhamento:', e);
+      }
+    });
+
+    socket.on('screen-answer', async ({ from, answer }) => {
+      const pc = screenPeersRef.current.get(from);
+      if (!pc) return;
+      try {
+        if (!pc.currentRemoteDescription) {
+          await pc.setRemoteDescription(answer);
+          await flushScreenIce(from, pc);
+        }
+      } catch (e) {
+        console.warn('Screen answer rejeitada:', e);
+      }
+    });
+
+    socket.on('screen-ice-candidate', async ({ from, candidate }) => {
+      let pc = screenPeersRef.current.get(from);
+      if (!pc) {
+        queueScreenIce(from, candidate);
+        return;
+      }
+      if (!pc.remoteDescription) {
+        queueScreenIce(from, candidate);
+        return;
+      }
+      try { await pc.addIceCandidate(candidate); }
+      catch (e) { console.warn('Screen ICE rejeitado:', e); }
+    });
+
+    socket.on('screen-share-stopped', ({ from }) => {
+      closeScreenPeer(from);
+    });
+
     socket.on('user-left', ({ socketId }) => {
       peersRef.current.get(socketId)?.close();
       peersRef.current.delete(socketId);
+      closeScreenPeer(socketId);
       remoteMediaRef.current.delete(socketId);
       setRemoteStreams(prev => { const n = { ...prev }; delete n[socketId]; return n; });
       setDiagnostics(prev => { const n = { ...prev }; delete n[socketId]; return n; });
@@ -432,42 +581,63 @@ function App() {
 
   async function shareScreen() {
     if (sharing) return stopScreenShare();
+
     socketRef.current.emit('request-screen-share', {}, async res => {
       if (!res?.ok) return alert(res?.error || 'Não foi possível compartilhar.');
+
       try {
         const is1080 = quality === '1080';
         const stream = await navigator.mediaDevices.getDisplayMedia({
-          video: { width: { ideal: is1080 ? 1920 : 1280 }, height: { ideal: is1080 ? 1080 : 720 }, frameRate: { ideal: 60, max: 60 } },
-          audio: true
+          video: {
+            width: { ideal: is1080 ? 1920 : 1280 },
+            height: { ideal: is1080 ? 1080 : 720 },
+            frameRate: { ideal: 30, max: 60 }
+          },
+          // O áudio da call continua no PeerConnection principal.
+          // Não misturamos áudio do compartilhamento com o microfone.
+          audio: false
         });
+
         screenStreamRef.current = stream;
         const track = stream.getVideoTracks()[0];
-        for (const pc of peersRef.current.values()) {
-          const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-          if (sender) await sender.replaceTrack(track);
-        }
+        if (!track) throw new Error('Nenhuma track de tela foi capturada.');
+
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-        track.onended = stopScreenShare;
-        setSharing(true); setStatus(`Compartilhando ${quality}p`);
+        track.onended = () => stopScreenShare();
+
+        setSharing(true);
+        setStatus(`Compartilhando ${quality}p`);
+
+        // Canal WebRTC EXCLUSIVO para tela. Não toca na call principal.
+        await offerScreenToParticipants(participants);
       } catch (e) {
-        socketRef.current.emit('stop-screen-share');
+        console.error('Falha ao compartilhar tela:', e);
+        screenStreamRef.current?.getTracks().forEach(t => t.stop());
+        screenStreamRef.current = null;
+        socketRef.current?.emit('stop-screen-share');
+        setSharing(false);
+        setStatus('Falha ao compartilhar tela');
       }
     });
   }
 
   async function stopScreenShare() {
-    const camTrack = localStreamRef.current?.getVideoTracks()[0];
-    if (camTrack) {
-      for (const pc of peersRef.current.values()) {
-        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-        if (sender) await sender.replaceTrack(camTrack);
-      }
-    }
+    const track = screenStreamRef.current?.getVideoTracks()[0];
+    if (track) track.onended = null;
     screenStreamRef.current?.getTracks().forEach(t => t.stop());
     screenStreamRef.current = null;
+
+    for (const [peerId, pc] of screenPeersRef.current.entries()) {
+      try { pc.close(); } catch (_) {}
+      socketRef.current?.emit('screen-share-stop-peer', { target: peerId });
+    }
+    screenPeersRef.current.clear();
+    pendingScreenIceRef.current.clear();
+
     if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
     socketRef.current?.emit('stop-screen-share');
-    setSharing(false); setStatus('Compartilhamento encerrado');
+    setSharing(false);
+    setStatus('Compartilhamento encerrado');
   }
 
   function popout(stream, label) {
@@ -485,6 +655,10 @@ function App() {
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     peersRef.current.forEach(pc => pc.close());
     peersRef.current.clear();
+    screenPeersRef.current.forEach(pc => pc.close());
+    screenPeersRef.current.clear();
+    pendingScreenIceRef.current.clear();
+    setRemoteScreenStreams({});
     pendingIceRef.current.clear();
     remoteMediaRef.current.clear();
     setPeerStates({});
@@ -589,7 +763,12 @@ function App() {
             const state = peerStates[id] || 'conectando';
             return <RemoteVideo key={id} stream={stream} label={`${label} • ${state}`} onPop={() => popout(stream, label)} />;
           })}
-          {Object.keys(remoteStreams).length === 0 && <div className="emptyTile"><div className="emptyIcon">#</div><h3>{roomCode}</h3><p>Envie apenas este código para seus amigos.</p><button onClick={copyCode}>Copiar código</button></div>}
+          {Object.entries(remoteScreenStreams).map(([id, stream]) => {
+            const p = participants.find(x => x.socketId === id);
+            const label = `${p?.name || 'Convidado'} • TELA`;
+            return <RemoteVideo key={`screen-${id}`} stream={stream} label={label} onPop={() => popout(stream, label)} />;
+          })}
+          {Object.keys(remoteStreams).length === 0 && Object.keys(remoteScreenStreams).length === 0 && <div className="emptyTile"><div className="emptyIcon">#</div><h3>{roomCode}</h3><p>Envie apenas este código para seus amigos.</p><button onClick={copyCode}>Copiar código</button></div>}
         </div>
         <footer className="controls">
           <button className={micOn ? '' : 'off'} onClick={toggleMic}>{micOn ? '🎤' : '🔇'} <span>Microfone</span></button>
