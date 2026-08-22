@@ -1083,7 +1083,6 @@ function App() {
       </div>}
     </main>
   );
-  );
 }
 
 function VideoTile({ streamRef, label, muted, onPop }) {

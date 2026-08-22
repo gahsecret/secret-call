@@ -1,3 +1,11 @@
+# Secret Call V1.4.8.1 — Build Fix
+
+Correção pontual da V1.4.8 Gamer UI.
+
+- Corrigido fechamento JSX duplicado que fazia o Vite falhar no build.
+- Nenhuma alteração no WebRTC, TURN, áudio, câmera ou compartilhamento.
+- Layout gamer e funções da V1.4.8 preservados.
+
 # Secret Call V1.4.8 — Gamer UI
 
 Baseada na V1.4.7 que estabilizou áudio + tela + áudio da transmissão.
