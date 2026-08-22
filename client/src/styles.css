@@ -417,3 +417,299 @@ button {
   background: #0a1926;
 }
 .diagPeer strong { color: #fff; }
+
+
+/* =========================================================
+   SECRET CALL V1.4.8 — GAMER UI
+   Mantém landing/pre-call existentes e estiliza a sala.
+   ========================================================= */
+.gamerShell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 290px minmax(0, 1fr) 300px;
+  background:
+    radial-gradient(circle at 35% 0%, rgba(89, 35, 190, .10), transparent 34%),
+    radial-gradient(circle at 65% 100%, rgba(18, 91, 255, .08), transparent 30%),
+    #030711;
+  color: #f6f8ff;
+  overflow: hidden;
+}
+
+.gamerLeft,
+.gamerRight {
+  background: linear-gradient(180deg, rgba(4,8,18,.98), rgba(5,9,20,.98));
+  border-color: rgba(123, 67, 255, .18);
+  min-width: 0;
+}
+
+.gamerLeft {
+  border-right: 1px solid rgba(118, 77, 255, .2);
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  overflow-y: auto;
+}
+
+.gamerBrand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 20px;
+  letter-spacing: .03em;
+}
+.gamerBrand span { color: #a742ff; }
+.gamerLogo {
+  width: 42px; height: 42px; border-radius: 13px;
+  display: grid; place-items: center; font-weight: 1000; font-size: 24px;
+  background: linear-gradient(135deg,#5b29ff,#bd21ff 50%,#177cff);
+  box-shadow: 0 0 26px rgba(133,52,255,.35);
+}
+
+.sideTitle, .rightTitle {
+  color: #9a87b7;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .11em;
+  margin-bottom: 10px;
+}
+
+.participantStack { display: grid; gap: 8px; }
+.gamerParticipant {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px; border-radius: 12px;
+  background: #0b1020; border: 1px solid rgba(117,92,170,.16);
+}
+.gamerParticipant.me { background: linear-gradient(90deg, rgba(41,72,150,.18), rgba(26,14,56,.35)); }
+.avatarCircle {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; font-weight: 800;
+  border: 2px solid #713cff;
+  background: #0c1222;
+}
+.participantName { display:flex; flex-direction:column; min-width:0; flex:1; }
+.participantName small { color:#884cff; font-size:10px; }
+.voicePulse { font-size: 9px; letter-spacing:1px; color:#333d5d; transform: rotate(-90deg); }
+.voicePulse.active { color:#b33cff; text-shadow:0 0 12px #b33cff; }
+
+.wideGhost {
+  width:100%; border:1px solid #25324d; background:#0c1220; color:#e7ecff;
+  padding:12px 14px; border-radius:11px;
+}
+.wideGhost:hover { border-color:#7837ff; box-shadow:0 0 18px rgba(117,55,255,.16); }
+
+.roomInfoCard, .experienceCard {
+  padding:14px; border:1px solid rgba(117,80,170,.16);
+  border-radius:14px; background:#080e1c;
+}
+.roomInfoRow {
+  display:flex; justify-content:space-between; gap:10px;
+  padding:9px 0; color:#8794ad; font-size:12px;
+  border-bottom:1px solid rgba(128,108,173,.08);
+}
+.roomInfoRow:last-child { border-bottom:0; }
+.roomInfoRow b { color:#d8def0; }
+.roomInfoRow .good { color:#34e186; }
+
+.experienceCard {
+  margin-top:auto; display:flex; gap:12px; align-items:center;
+  background:linear-gradient(135deg,rgba(78,19,124,.22),rgba(0,45,99,.18));
+}
+.experienceCard .diamond { font-size:34px; color:#a938ff; }
+.experienceCard small { display:block; color:#8190a9; margin-top:4px; }
+
+.leftFooter { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; }
+.leftFooter button {
+  border:1px solid #1f2940; background:#0a1020; color:#cdd6ea;
+  border-radius:10px; padding:10px 4px;
+}
+
+.gamerMain {
+  min-width:0; min-height:100vh;
+  display:grid; grid-template-rows:auto auto 1fr auto auto;
+}
+.gamerTop {
+  min-height:76px; display:flex; align-items:center; gap:12px; padding:0 22px;
+  border-bottom:1px solid rgba(118,77,255,.16);
+  background:rgba(2,6,14,.78); backdrop-filter:blur(16px);
+}
+.protected, .topBtn, .roomCodeTop {
+  border:1px solid #1d2942; background:#080d19; color:#e7edff;
+  border-radius:12px; padding:10px 13px;
+}
+.roomCodeTop {
+  margin-left:auto; font-size:19px; font-weight:800;
+  border-color:#6e2eff; box-shadow:0 0 18px rgba(110,46,255,.18);
+}
+.topCount { color:#99a6bf; font-size:13px; }
+.topBtn.active { color:#c35cff; border-color:#7030ff; }
+
+.gamerStage { min-height:0; overflow:auto; padding:16px 18px 10px; }
+.gamerVideoGrid {
+  min-height:100%;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  grid-auto-rows:minmax(220px,1fr);
+  gap:14px;
+}
+.gamerVideoGrid.focus { grid-template-columns:1fr; }
+.gamerVideoGrid.focus .videoTile:first-child { min-height:62vh; }
+
+.gamerVideoGrid .videoTile,
+.waitingCard {
+  border-radius:15px;
+  border:1px solid rgba(79,77,130,.45);
+  background:#02060b;
+  box-shadow:0 16px 45px rgba(0,0,0,.24);
+}
+.gamerVideoGrid .videoTile:hover {
+  border-color:#6f37ff;
+  box-shadow:0 0 24px rgba(94,42,255,.14);
+}
+.gamerVideoGrid .videoTile video { object-fit:contain; }
+.gamerVideoGrid .videoLabel {
+  background:rgba(3,6,13,.72); border:1px solid rgba(112,76,181,.26);
+}
+.gamerVideoGrid .popBtn {
+  position:absolute; right:12px; top:12px;
+  background:#0d1120d9; border:1px solid #29334c; color:#fff;
+  border-radius:10px; padding:8px 10px; z-index:3;
+}
+
+.waitingCard {
+  display:grid; place-items:center; align-content:center; text-align:center;
+  color:#8090a8; padding:24px;
+}
+.waitingCard h3 { color:#e7ebf7; margin:12px 0 4px; }
+.waitingCard button {
+  margin-top:10px; background:#0b1020; border:1px solid #7038ff;
+  color:#fff; border-radius:10px; padding:10px 15px;
+}
+.waitingIcon { font-size:44px; filter:drop-shadow(0 0 14px #733cff); }
+
+.gamerBottomControls {
+  margin:8px auto 0; width:min(760px,calc(100% - 32px));
+  display:grid; grid-template-columns:repeat(6,1fr);
+  padding:10px; border-radius:24px;
+  border:1px solid transparent;
+  background:
+    linear-gradient(#070b15,#070b15) padding-box,
+    linear-gradient(90deg,#1e6fff,#7d31ff,#dd32ce) border-box;
+  box-shadow:0 0 28px rgba(101,51,255,.17);
+}
+.gamerBottomControls button {
+  min-height:64px; display:grid; place-items:center; align-content:center; gap:4px;
+  border:0; border-right:1px solid #171f32;
+  background:transparent; color:#dce4f5; font-size:20px;
+}
+.gamerBottomControls button span { font-size:11px; }
+.gamerBottomControls button:last-child { border-right:0; }
+.gamerBottomControls .controlActive { color:#7c5cff; }
+.gamerBottomControls .controlShare.active {
+  background:linear-gradient(180deg,rgba(134,43,255,.26),rgba(79,22,131,.18));
+  border-radius:15px;
+}
+.gamerBottomControls .leaveControl {
+  background:linear-gradient(180deg,#5b0e23,#2b0a15);
+  color:#ff6d86; border-radius:15px !important;
+}
+
+.bottomBrand {
+  text-align:center; padding:10px 0 14px; font-weight:900; color:#7d2eff;
+}
+.bottomBrand span { margin-left:6px; letter-spacing:.08em; }
+
+.gamerRight {
+  border-left:1px solid rgba(118,77,255,.2);
+  padding:16px 14px; display:flex; flex-direction:column; gap:12px;
+  overflow-y:auto;
+}
+.gamerRight.collapsed { width:0; padding:0; border:0; overflow:hidden; }
+.rightCard {
+  border:1px solid #1a2439; border-radius:14px;
+  background:#080d18; padding:13px;
+}
+.chatCard { min-height:330px; display:grid; grid-template-rows:auto 1fr auto; }
+.chatMessages { overflow-y:auto; display:grid; align-content:start; gap:11px; max-height:330px; }
+.chatMsg { display:grid; grid-template-columns:28px 1fr; gap:8px; }
+.chatAvatar {
+  width:28px;height:28px;border-radius:50%;display:grid;place-items:center;
+  background:#10172a;border:1px solid #6534de;font-size:11px;font-weight:800;
+}
+.chatMeta { display:flex; gap:8px; align-items:center; font-size:11px; }
+.chatMeta span { color:#687790; }
+.chatMsg p { margin:3px 0 0; color:#dce3f0; font-size:12px; }
+.chatEmpty { color:#64728a; font-size:12px; padding:12px 0; }
+.chatInputRow { display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:10px; }
+.chatInputRow input {
+  min-width:0;background:#0c1220;border:1px solid #1e2941;color:#fff;
+  border-radius:10px;padding:10px;
+}
+.chatInputRow button {
+  width:40px;border:0;border-radius:10px;background:linear-gradient(135deg,#7e32ff,#343bff);color:#fff;
+}
+
+.audioCard label {
+  display:flex;justify-content:space-between;color:#d4dced;font-size:12px;margin:10px 0 5px;
+}
+.audioCard input[type=range] { width:100%; accent-color:#8b3dff; }
+.qualityCard { position:relative; }
+.qualityCard strong { color:#3ce48d; display:block; margin-top:4px; }
+.qualityCard span { color:#8b98af; font-size:12px; }
+.qualityBars { position:absolute;right:14px;bottom:18px;color:#38e688;letter-spacing:2px; }
+
+.rightActions { display:grid;grid-template-columns:repeat(3,1fr);gap:6px; }
+.rightActions button {
+  border:1px solid #1d2941;background:#090f1c;color:#dce3f1;border-radius:10px;padding:10px 4px;font-size:11px;
+}
+.rightActions .recording { color:#ff5f79;border-color:#8c2136;background:#2e0c16; }
+.downloadRecord {
+  display:block;text-align:center;padding:10px;border-radius:10px;
+  background:#0c1424;border:1px solid #2a4671;color:#9dd2ff;text-decoration:none;font-size:12px;
+}
+
+.modalOverlay {
+  position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.72);
+  display:grid;place-items:center;padding:20px;
+}
+.settingsModal {
+  width:min(460px,100%);background:#080d18;border:1px solid #6832ff;
+  border-radius:18px;padding:18px;box-shadow:0 0 50px rgba(105,49,255,.22);
+}
+.settingsHead { display:flex;align-items:center;justify-content:space-between; }
+.settingsHead h3 { margin:0; }
+.settingsHead button { background:none;border:0;color:#fff;font-size:18px; }
+.settingGroup { margin-top:18px;display:grid;gap:8px; }
+.settingGroup label { color:#9ca9bf;font-size:12px; }
+.settingGroup select {
+  background:#0d1322;border:1px solid #24314c;color:#fff;padding:11px;border-radius:10px;
+}
+.segmented { display:grid;grid-template-columns:1fr 1fr;gap:8px; }
+.segmented button {
+  background:#0d1322;border:1px solid #24314c;color:#d6deef;border-radius:10px;padding:11px;
+}
+.segmented .active { border-color:#7538ff;color:#b66cff; }
+.modalDone {
+  width:100%;margin-top:20px;border:0;border-radius:11px;padding:12px;color:#fff;font-weight:800;
+  background:linear-gradient(90deg,#8a22ff,#146dff);
+}
+
+.toast {
+  position:fixed;z-index:2000;top:18px;left:50%;transform:translateX(-50%);
+  background:#0b1220;border:1px solid #6737f6;color:#eef2ff;
+  padding:10px 16px;border-radius:999px;box-shadow:0 0 26px rgba(103,55,246,.28);
+}
+
+@media (max-width: 1180px) {
+  .gamerShell { grid-template-columns:230px minmax(0,1fr); }
+  .gamerRight { position:fixed;right:0;top:0;bottom:0;width:300px;z-index:50;box-shadow:-20px 0 50px rgba(0,0,0,.4); }
+}
+@media (max-width: 820px) {
+  .gamerShell { grid-template-columns:1fr; overflow:auto; }
+  .gamerLeft { display:none; }
+  .gamerTop { flex-wrap:wrap;padding:12px; }
+  .roomCodeTop { margin-left:0; }
+  .gamerVideoGrid { grid-template-columns:1fr; }
+  .gamerBottomControls { grid-template-columns:repeat(3,1fr);border-radius:18px; }
+  .gamerRight { width:min(330px,92vw); }
+}

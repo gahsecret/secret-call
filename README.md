@@ -1,24 +1,31 @@
-# Secret Call V1.4.7 — Screen Share Audio
+# Secret Call V1.4.8 — Gamer UI
 
-Baseada diretamente na V1.4.6 que estabilizou o compartilhamento de tela.
+Baseada na V1.4.7 que estabilizou áudio + tela + áudio da transmissão.
 
-## O que mudou
-- O compartilhamento continua em PeerConnection separado da call.
-- Agora envia a track de vídeo da tela e também a track de áudio disponibilizada pelo navegador.
-- Microfone e câmera da call principal continuam isolados.
-- O receptor monta um MediaStream da transmissão com vídeo + áudio.
-- O status informa se o navegador realmente entregou áudio da transmissão.
-- TURN e ICE do canal separado continuam ativos.
-- package-lock.json do client e server foram preservados.
+## Núcleo preservado
+- TURN
+- ICE
+- áudio/microfone
+- câmera
+- compartilhamento separado
+- áudio da transmissão
+- código temporário
+- 10 participantes
+- 3 telas
+- popout para segundo monitor
 
-## Importante sobre áudio da tela
-O navegador só fornece áudio quando o tipo de captura escolhido oferece isso.
-
-Em navegadores Chromium (Chrome/Edge/Opera):
-- ao compartilhar uma aba, marque "Compartilhar áudio da guia";
-- ao compartilhar a tela inteira, use a opção "Compartilhar também o áudio do sistema" quando ela aparecer;
-- algumas combinações de navegador/SO não fornecem áudio para certas janelas específicas.
-
-Se o status mostrar:
-`sem áudio da transmissão`
-o navegador não forneceu nenhuma audio track, mesmo que o app tenha solicitado.
+## Novidades da interface
+- Layout gamer roxo/azul inspirado no mockup aprovado
+- Sidebar de participantes
+- Informações da sala
+- Chat da sala funcional
+- Controle de volume remoto da call
+- Controle de volume do áudio da transmissão
+- Layout Grade/Foco
+- Tela cheia
+- Configurações
+- Gravação local da mídia disponível no navegador
+- Download da gravação
+- Botões de convidar/copiar código
+- Painel de qualidade
+- Diagnóstico preservado

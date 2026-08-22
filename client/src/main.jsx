@@ -36,6 +36,18 @@ function App() {
   const [peerStates, setPeerStates] = useState({});
   const [diagnostics, setDiagnostics] = useState({});
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [chatOpen, setChatOpen] = useState(true);
+  const [peopleOpen, setPeopleOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [layoutMode, setLayoutMode] = useState('grid');
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [micVolume, setMicVolume] = useState(80);
+  const [shareVolume, setShareVolume] = useState(70);
+  const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [recordingUrl, setRecordingUrl] = useState('');
+  const [toast, setToast] = useState('');
 
   const socketRef = useRef(null);
   const localVideoRef = useRef(null);
@@ -52,8 +64,24 @@ function App() {
   // Assim tela nunca renegocia nem altera o áudio/câmera que já estão funcionando.
   const screenPeersRef = useRef(new Map());
   const pendingScreenIceRef = useRef(new Map());
+  const recorderRef = useRef(null);
+  const recorderChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
 
   useEffect(() => () => cleanup(), []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(''), 2400);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (recordingUrl) URL.revokeObjectURL(recordingUrl);
+    };
+  }, [recordingUrl]);
 
   useEffect(() => {
     if (!codeExpiresAt) return;
@@ -429,6 +457,14 @@ function App() {
       setStatus('Novo código da sala gerado');
     });
     socket.on('sharing-count', ({ count }) => setSharingCount(count));
+
+    socket.on('chat-history', messages => {
+      if (Array.isArray(messages)) setChatMessages(messages);
+    });
+
+    socket.on('chat-message', message => {
+      setChatMessages(prev => [...prev.slice(-99), message]);
+    });
     socket.on('webrtc-offer', async ({ from, offer }) => {
       const pc = createPeer(from);
       await pc.setRemoteDescription(offer);
@@ -647,7 +683,8 @@ function App() {
         await offerScreenToParticipants(participants);
       } catch (e) {
         console.error('Falha ao compartilhar tela:', e);
-        screenStreamRef.current?.getTracks().forEach(t => t.stop());
+        if (recording) stopRecording();
+    screenStreamRef.current?.getTracks().forEach(t => t.stop());
         screenStreamRef.current = null;
         socketRef.current?.emit('stop-screen-share');
         setSharing(false);
@@ -683,6 +720,93 @@ function App() {
     w.document.close();
     const v = w.document.getElementById('v');
     v.srcObject = stream;
+  }
+
+
+  function copyInviteCode() {
+    if (!roomCode) return;
+    navigator.clipboard?.writeText(roomCode);
+    setToast('Código copiado');
+  }
+
+  function sendChat() {
+    const text = chatInput.trim();
+    if (!text || !socketRef.current?.connected) return;
+    socketRef.current.emit('chat-message', { text }, res => {
+      if (!res?.ok) setToast(res?.error || 'Não foi possível enviar');
+    });
+    setChatInput('');
+  }
+
+  function toggleLayout() {
+    setLayoutMode(v => v === 'grid' ? 'focus' : 'grid');
+    setToast(layoutMode === 'grid' ? 'Layout foco ativado' : 'Layout grade ativado');
+  }
+
+  async function startRecording() {
+    if (recording) return stopRecording();
+
+    let source = null;
+    if (screenStreamRef.current) {
+      source = screenStreamRef.current;
+    } else if (localStreamRef.current?.getTracks().length) {
+      source = localStreamRef.current;
+    }
+
+    if (!source || source.getTracks().length === 0) {
+      setToast('Ative câmera/microfone ou compartilhe a tela para gravar');
+      return;
+    }
+
+    try {
+      const tracks = source.getTracks().filter(t => t.readyState === 'live');
+      const recordStream = new MediaStream(tracks);
+
+      const candidates = [
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm'
+      ];
+      const mimeType = candidates.find(t => MediaRecorder.isTypeSupported(t)) || '';
+
+      recorderChunksRef.current = [];
+      const recorder = new MediaRecorder(recordStream, mimeType ? { mimeType } : undefined);
+      recorderRef.current = recorder;
+
+      recorder.ondataavailable = e => {
+        if (e.data?.size) recorderChunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(recorderChunksRef.current, { type: recorder.mimeType || 'video/webm' });
+        if (recordingUrl) URL.revokeObjectURL(recordingUrl);
+        const url = URL.createObjectURL(blob);
+        setRecordingUrl(url);
+        setToast('Gravação pronta para baixar');
+      };
+
+      recorder.start(1000);
+      setRecording(true);
+      setRecordingSeconds(0);
+      recordingTimerRef.current = setInterval(() => setRecordingSeconds(v => v + 1), 1000);
+      setToast('Gravação iniciada');
+    } catch (e) {
+      console.error('Falha ao gravar:', e);
+      setToast('Não foi possível iniciar a gravação');
+    }
+  }
+
+  function stopRecording() {
+    if (recorderRef.current?.state === 'recording') {
+      recorderRef.current.stop();
+    }
+    recorderRef.current = null;
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    recordingTimerRef.current = null;
+    setRecording(false);
+  }
+
+  function formatRecordingTime(sec) {
+    return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
   }
 
   function cleanup() {
@@ -756,26 +880,69 @@ function App() {
 
   const localStream = sharing ? screenStreamRef.current : localStreamRef.current;
   return (
-    <main className="appShell">
-      <aside className="sidebar">
-        <div className="sideBrand"><b>SECRET</b><small>CALL</small></div>
-        <div className="roomInfo">
-          <small>CÓDIGO ATUAL</small><strong>{roomCode}</strong>
-          <div className="expire">expira em {countdown}</div>
-          <button onClick={copyCode}>Copiar código</button>
-          <p>Quando trocar, todos continuam na mesma call.</p>
+    <main className={`gamerShell layout-${layoutMode}`}>
+      {toast && <div className="toast">{toast}</div>}
+
+      <aside className="gamerLeft">
+        <div className="gamerBrand">
+          <div className="gamerLogo">S</div>
+          <div><b>SECRET</b> <span>CALL</span></div>
         </div>
-        <div className="participants">
-          <small>PARTICIPANTES ({participants.length}/10)</small>
-          {participants.map(p => <div className="participant" key={p.socketId}><span className="dot"></span><span>{p.name}</span>{p.sharing && <em>🖥</em>}</div>)}
+
+        <div className="sideSection">
+          <div className="sideTitle">PARTICIPANTES ({participants.length})</div>
+          <div className="participantStack">
+            {participants.map(p => {
+              const isMe = p.socketId === socketRef.current?.id;
+              return <div className={`gamerParticipant ${isMe ? 'me' : ''}`} key={p.socketId}>
+                <div className="avatarCircle">{(p.name || '?').slice(0,1).toUpperCase()}</div>
+                <div className="participantName">
+                  <strong>{isMe ? 'Você' : p.name}</strong>
+                  {isMe && <small>Host</small>}
+                </div>
+                <div className={`voicePulse ${p.sharing ? 'active' : ''}`}>▮▮▮</div>
+              </div>;
+            })}
+          </div>
+
+          <button className="wideGhost" onClick={copyInviteCode}>👥 Convidar pessoas</button>
+        </div>
+
+        <div className="roomInfoCard">
+          <div className="sideTitle">INFORMAÇÕES DA SALA</div>
+          <div className="roomInfoRow"><span>ID da sala</span><b>{roomCode}</b></div>
+          <div className="roomInfoRow"><span>Expira</span><b>{countdown}</b></div>
+          <div className="roomInfoRow"><span>Segurança</span><b>TURN ativo</b></div>
+          <div className="roomInfoRow"><span>Conexão</span><b className="good">Excelente</b></div>
+        </div>
+
+        <div className="experienceCard">
+          <div className="diamond">◇</div>
+          <div>
+            <b>Secret Call</b>
+            <small>10 pessoas • 3 telas • 1080p</small>
+          </div>
+        </div>
+
+        <div className="leftFooter">
+          <button onClick={() => setSettingsOpen(true)}>⚙</button>
+          <button onClick={() => setPeopleOpen(v => !v)}>👥</button>
+          <button onClick={() => setShowDiagnostics(v => !v)}>🛡</button>
+          <button onClick={() => setToast('Mais opções em breve')}>•••</button>
         </div>
       </aside>
-      <section className="stage">
-        <header>
-          <div><h2>SECRET CALL</h2><p>{status}</p></div>
-          <div className="topStats"><button className="diagToggle" onClick={() => setShowDiagnostics(v => !v)}>🔧 Diagnóstico</button><span className={turnEnabled ? 'turnBadge turnOn' : 'turnBadge'}>{turnEnabled ? '🛡 TURN ativo' : '⚠ TURN inativo'}</span><span>🖥 {sharingCount}/3 compartilhando</span><div className="quality"><span>Qualidade</span><select value={quality} onChange={e => setQuality(e.target.value)}><option value="720">720p</option><option value="1080">1080p</option></select></div></div>
+
+      <section className="gamerMain">
+        <header className="gamerTop">
+          <div className="protected">🔒 Sala protegida</div>
+          <button className="roomCodeTop" onClick={copyInviteCode}>{roomCode} <span>⧉</span></button>
+          <div className="topCount">👥 {participants.length} participantes</div>
+          <button className={layoutMode === 'grid' ? 'topBtn active' : 'topBtn'} onClick={toggleLayout}>▦ Grade</button>
+          <button className="topBtn" onClick={() => document.documentElement.requestFullscreen?.()}>⛶</button>
+          <button className="topBtn" onClick={() => setSettingsOpen(true)}>•••</button>
         </header>
-        {showDiagnostics && <div className="diagPanel">
+
+        {showDiagnostics && <div className="diagPanel gamerDiag">
           <b>Diagnóstico WebRTC</b>
           {participants.filter(p => p.socketId !== socketRef.current?.id).length === 0 && <span>Nenhum peer remoto conectado.</span>}
           {participants.filter(p => p.socketId !== socketRef.current?.id).map(p => {
@@ -784,43 +951,145 @@ function App() {
               <strong>{p.name}</strong>
               <span>Conexão: {d.connection || peerStates[p.socketId] || 'new'}</span>
               <span>ICE: {d.ice || 'new'}</span>
-              <span>Enviando: áudio {d.localAudioSenders ?? 0} • vídeo {d.localVideoSenders ?? 0}</span>
-              <span>Receivers: áudio {d.remoteAudioReceivers ?? 0} • vídeo {d.remoteVideoReceivers ?? 0}</span>
-              <span>Tracks recebidas: áudio {d.receivedAudio ?? 0} ({d.audioState || 'none'}) • vídeo {d.receivedVideo ?? 0} ({d.videoState || 'none'})</span>
+              <span>Áudio recebido: {d.receivedAudio ?? 0}</span>
+              <span>Vídeo recebido: {d.receivedVideo ?? 0}</span>
             </div>;
           })}
         </div>}
-        <div className="videoGrid">
-          <VideoTile streamRef={localVideoRef} label={`${name} (você)${sharing ? ' • TELA' : ''}`} muted onPop={() => popout(localStream, `${name} • ${sharing ? 'Tela' : 'Câmera'}`)} />
-          {Object.entries(remoteStreams).map(([id, stream]) => {
-            const p = participants.find(x => x.socketId === id);
-            const label = `${p?.name || 'Convidado'}${p?.sharing ? ' • TELA' : ''}`;
-            const state = peerStates[id] || 'conectando';
-            return <RemoteVideo key={id} stream={stream} label={`${label} • ${state}`} onPop={() => popout(stream, label)} />;
-          })}
-          {Object.entries(remoteScreenStreams).map(([id, stream]) => {
-            const p = participants.find(x => x.socketId === id);
-            const label = `${p?.name || 'Convidado'} • TELA`;
-            return <RemoteVideo key={`screen-${id}`} stream={stream} label={label} onPop={() => popout(stream, label)} />;
-          })}
-          {Object.keys(remoteStreams).length === 0 && Object.keys(remoteScreenStreams).length === 0 && <div className="emptyTile"><div className="emptyIcon">#</div><h3>{roomCode}</h3><p>Envie apenas este código para seus amigos.</p><button onClick={copyCode}>Copiar código</button></div>}
+
+        <div className="gamerStage">
+          <div className={`gamerVideoGrid ${layoutMode}`}>
+            <VideoTile
+              streamRef={localVideoRef}
+              label={`${name} (você)${sharing ? ' • TELA' : ''}`}
+              muted
+              onPop={() => popout(localStream, `${name} • ${sharing ? 'Tela' : 'Câmera'}`)}
+            />
+
+            {Object.entries(remoteStreams).map(([id, stream]) => {
+              const p = participants.find(x => x.socketId === id);
+              const label = p?.name || 'Convidado';
+              return <RemoteVideo
+                key={`call-${id}`}
+                stream={stream}
+                label={label}
+                volume={micVolume / 100}
+                onPop={() => popout(stream, label)}
+              />;
+            })}
+
+            {Object.entries(remoteScreenStreams).map(([id, stream]) => {
+              const p = participants.find(x => x.socketId === id);
+              const label = `Tela de ${p?.name || 'Convidado'}`;
+              return <RemoteVideo
+                key={`screen-${id}`}
+                stream={stream}
+                label={label}
+                volume={shareVolume / 100}
+                onPop={() => popout(stream, label)}
+              />;
+            })}
+
+            {Object.keys(remoteStreams).length === 0 && Object.keys(remoteScreenStreams).length === 0 && (
+              <div className="waitingCard">
+                <div className="waitingIcon">👥</div>
+                <h3>Aguardando participantes...</h3>
+                <p>Compartilhe o código da sala para convidar amigos.</p>
+                <button onClick={copyInviteCode}>Copiar código</button>
+              </div>
+            )}
+          </div>
         </div>
-        <footer className="controls">
-          <button className={micOn ? '' : 'off'} onClick={toggleMic}>{micOn ? '🎤' : '🔇'} <span>Microfone</span></button>
-          <button className={camOn ? '' : 'off'} onClick={toggleCam}>{camOn ? '📹' : '🚫'} <span>Câmera</span></button>
-          <button className={sharing ? 'active' : ''} onClick={shareScreen}>🖥 <span>{sharing ? 'Parar tela' : 'Compartilhar'}</span></button>
-          <button className="windowBtn" onClick={() => popout(localStream, `${name} • ${sharing ? 'Tela' : 'Câmera'}`)}>↗ <span>Abrir janela</span></button>
-          <button className="danger" onClick={leave}>☎ <span>Sair</span></button>
-        </footer>
+
+        <div className="gamerBottomControls">
+          <button className={micOn ? 'controlActive' : ''} onClick={toggleMic}>🎙<span>Microfone</span></button>
+          <button className={camOn ? 'controlActive' : ''} onClick={toggleCam}>📹<span>Câmera</span></button>
+          <button className={sharing ? 'controlShare active' : 'controlShare'} onClick={shareScreen}>🖥<span>{sharing ? 'Parar tela' : 'Tela'}</span></button>
+          <button className={chatOpen ? 'controlActive' : ''} onClick={() => setChatOpen(v => !v)}>💬<span>Chat</span></button>
+          <button className={peopleOpen ? 'controlActive' : ''} onClick={() => setPeopleOpen(v => !v)}>👥<span>Pessoas</span></button>
+          <button className="leaveControl" onClick={leave}>☎<span>Sair</span></button>
+        </div>
+
+        <div className="bottomBrand">S <span>SECRET CALL</span></div>
       </section>
+
+      <aside className={`gamerRight ${chatOpen ? '' : 'collapsed'}`}>
+        {chatOpen && <>
+          <div className="rightCard chatCard">
+            <div className="rightTitle">CHAT DA SALA</div>
+            <div className="chatMessages">
+              {chatMessages.length === 0 && <div className="chatEmpty">Nenhuma mensagem ainda.</div>}
+              {chatMessages.map((m, idx) => <div className="chatMsg" key={`${m.id || idx}-${idx}`}>
+                <div className="chatAvatar">{(m.name || '?').slice(0,1).toUpperCase()}</div>
+                <div><div className="chatMeta"><b>{m.name}</b><span>{m.time || ''}</span></div><p>{m.text}</p></div>
+              </div>)}
+            </div>
+            <div className="chatInputRow">
+              <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendChat()} placeholder="Digite sua mensagem..." />
+              <button onClick={sendChat}>➤</button>
+            </div>
+          </div>
+
+          <div className="rightCard audioCard">
+            <div className="rightTitle">CONTROLES DE ÁUDIO</div>
+            <label>🎙 Microfone <span>{micVolume}%</span></label>
+            <input type="range" min="0" max="100" value={micVolume} onChange={e => setMicVolume(Number(e.target.value))}/>
+            <label>🔊 Áudio da transmissão <span>{shareVolume}%</span></label>
+            <input type="range" min="0" max="100" value={shareVolume} onChange={e => setShareVolume(Number(e.target.value))}/>
+          </div>
+
+          <div className="rightCard qualityCard">
+            <div className="rightTitle">QUALIDADE DA CHAMADA</div>
+            <strong>Excelente</strong>
+            <span>{quality}p • TURN ativo</span>
+            <div className="qualityBars">▂▄▆█</div>
+          </div>
+
+          <div className="rightActions">
+            <button className={recording ? 'recording' : ''} onClick={startRecording}>
+              ⏺ {recording ? formatRecordingTime(recordingSeconds) : 'Gravar'}
+            </button>
+            <button onClick={toggleLayout}>▦ Layout</button>
+            <button onClick={() => setSettingsOpen(true)}>⚙ Config.</button>
+          </div>
+
+          {recordingUrl && <a className="downloadRecord" href={recordingUrl} download={`secret-call-${Date.now()}.webm`}>⬇ Baixar gravação</a>}
+        </>}
+      </aside>
+
+      {settingsOpen && <div className="modalOverlay" onClick={() => setSettingsOpen(false)}>
+        <div className="settingsModal" onClick={e => e.stopPropagation()}>
+          <div className="settingsHead"><h3>Configurações</h3><button onClick={() => setSettingsOpen(false)}>✕</button></div>
+          <div className="settingGroup">
+            <label>Qualidade da transmissão</label>
+            <select value={quality} onChange={e => setQuality(e.target.value)}>
+              <option value="720">720p</option>
+              <option value="1080">1080p</option>
+            </select>
+          </div>
+          <div className="settingGroup">
+            <label>Layout</label>
+            <div className="segmented">
+              <button className={layoutMode === 'grid' ? 'active' : ''} onClick={() => setLayoutMode('grid')}>Grade</button>
+              <button className={layoutMode === 'focus' ? 'active' : ''} onClick={() => setLayoutMode('focus')}>Foco</button>
+            </div>
+          </div>
+          <div className="settingGroup">
+            <label>Diagnóstico</label>
+            <button className="wideGhost" onClick={() => setShowDiagnostics(v => !v)}>{showDiagnostics ? 'Ocultar diagnóstico' : 'Mostrar diagnóstico'}</button>
+          </div>
+          <button className="modalDone" onClick={() => setSettingsOpen(false)}>Concluído</button>
+        </div>
+      </div>}
     </main>
+  );
   );
 }
 
 function VideoTile({ streamRef, label, muted, onPop }) {
   return <div className="videoTile"><video ref={streamRef} autoPlay playsInline muted={muted}/><span className="videoLabel">{label}</span><button className="popBtn" onClick={onPop}>↗ Abrir em janela</button></div>;
 }
-function RemoteVideo({ stream, label, onPop }) {
+function RemoteVideo({ stream, label, onPop, volume = 1 }) {
   const ref = useRef(null);
   useEffect(() => {
     const video = ref.current;
@@ -828,7 +1097,7 @@ function RemoteVideo({ stream, label, onPop }) {
     if (video.srcObject !== stream) video.srcObject = stream;
 
     video.muted = false;
-    video.volume = 1;
+    video.volume = Math.max(0, Math.min(1, volume));
 
     const tryPlay = () => {
       const p = video.play();
@@ -840,7 +1109,7 @@ function RemoteVideo({ stream, label, onPop }) {
     stream.getTracks().forEach(track => {
       track.onunmute = tryPlay;
     });
-  }, [stream]);
+  }, [stream, volume]);
 
   return <div className="videoTile">
     <video ref={ref} autoPlay playsInline/>

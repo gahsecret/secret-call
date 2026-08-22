@@ -15,7 +15,7 @@ app.use(cors());
 app.get('/health', (_, res) => res.json({
   ok: true,
   service: 'Secret Call',
-  version: '1.4.7',
+  version: '1.4.8',
   rooms: rooms?.size ?? 0
 }));
 
@@ -122,6 +122,7 @@ function leaveCurrentRoom(socket) {
   socket.leave(room.id);
   socket.to(room.id).emit('user-left', { socketId: socket.id });
   emitParticipants(room.id);
+  socket.emit('chat-history', room.messages || []);
 
   if (room.members.size === 0) {
     codeToRoom.delete(room.code);
@@ -173,6 +174,32 @@ io.on('connection', socket => {
     leaveCurrentRoom(socket);
     joinInternal(socket, room, cleanName);
     ack?.({ ok: true, code: room.code, expiresAt: room.codeExpiresAt });
+  });
+
+
+  socket.on('chat-message', ({ text }, ack) => {
+    const user = users.get(socket.id);
+    const room = user ? rooms.get(user.roomId) : null;
+    if (!room) return ack?.({ ok: false, error: 'Você não está em uma sala.' });
+
+    const clean = String(text || '').trim().slice(0, 500);
+    if (!clean) return ack?.({ ok: false, error: 'Mensagem vazia.' });
+
+    const now = new Date();
+    const message = {
+      id: `${Date.now()}-${socket.id.slice(0, 6)}`,
+      socketId: socket.id,
+      name: user.name,
+      text: clean,
+      time: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    };
+
+    room.messages = room.messages || [];
+    room.messages.push(message);
+    if (room.messages.length > 100) room.messages = room.messages.slice(-100);
+
+    io.to(room.id).emit('chat-message', message);
+    ack?.({ ok: true });
   });
 
   socket.on('request-screen-share', (_, ack) => {
@@ -235,5 +262,5 @@ if (process.env.NODE_ENV === 'production' && process.env.SERVE_CLIENT !== 'false
 
 const PORT = Number(process.env.PORT || 3001);
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Secret Call V1.4.7 rodando na porta ${PORT}`);
+  console.log(`Secret Call V1.4.8 rodando na porta ${PORT}`);
 });
