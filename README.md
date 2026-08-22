@@ -1,12 +1,16 @@
-# Secret Call V1.4.3 — Stable Screen Share
+# Secret Call V1.4.4 — Bidirectional Media Fix
 
-Base exata: V1.4.1 enviada pelo usuário, onde o áudio bidirecional estava funcionando.
+Base: V1.4.1 (áudio que funcionou no teste).
 
-## O que foi alterado
-- Não há renegociação ao iniciar/parar compartilhamento.
-- Um canal de vídeo é reservado já na negociação inicial, inclusive para quem entra sem câmera.
-- Compartilhamento apenas usa `replaceTrack()` nesse canal.
-- Ao parar, volta para câmera ou para `null`.
-- Áudio, TURN e fila ICE permanecem com o comportamento da V1.4.1.
+Correções:
+- A negociação foi invertida: quem JÁ ESTÁ na sala cria a oferta para quem acabou de entrar.
+- O novo participante responde à oferta já com sua mídia preparada.
+- Áudio e vídeo têm canais sendrecv reservados desde a primeira negociação.
+- Ligar câmera/microfone depois usa replaceTrack.
+- Compartilhamento usa o mesmo canal de vídeo e não renegocia a call.
+- TURN e fila de ICE continuam ativos.
 
-A V1.4.2 foi descartada como base porque a renegociação de tela fazia o áudio regredir.
+Teste:
+1. Criador e convidado devem se ouvir nos dois sentidos.
+2. Criador compartilha -> convidado vê.
+3. Convidado compartilha -> criador vê.

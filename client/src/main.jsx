@@ -185,10 +185,6 @@ function App() {
       }
     }
 
-    // Fundamental para screen share bidirecional: mesmo quem entra sem câmera
-    // já negocia um canal de vídeo disponível para uso posterior.
-    ensureVideoSlot(pc);
-
     // Mantém os transceivers bidirecionais quando houver mídia local.
     for (const transceiver of pc.getTransceivers()) {
       if (transceiver.sender?.track && transceiver.direction !== 'sendrecv') {
@@ -218,38 +214,57 @@ function App() {
     return pc;
   }
 
-  function getVideoSender(pc) {
-    const senderWithVideo = pc.getSenders().find(sender => sender.track?.kind === 'video');
-    if (senderWithVideo) return senderWithVideo;
 
-    const videoTransceiver = pc.getTransceivers().find(transceiver =>
-      transceiver.sender?.track?.kind === 'video' ||
-      transceiver.receiver?.track?.kind === 'video'
+  function getSenderForKind(pc, kind) {
+    const direct = pc.getSenders().find(sender => sender.track?.kind === kind);
+    if (direct) return direct;
+
+    const tx = pc.getTransceivers().find(t =>
+      t.sender?.track?.kind === kind ||
+      t.receiver?.track?.kind === kind
     );
-    return videoTransceiver?.sender || null;
+    return tx?.sender || null;
   }
 
-  function ensureVideoSlot(pc) {
-    const existing = getVideoSender(pc);
+  function ensureMediaSlot(pc, kind) {
+    const existing = getSenderForKind(pc, kind);
     if (existing) return existing;
 
-    // Reserva o canal de vídeo na PRIMEIRA negociação.
-    // Assim câmera/tela podem entrar depois via replaceTrack sem renegociar
-    // a chamada e sem tocar no áudio que já está estável.
-    return pc.addTransceiver('video', { direction: 'sendrecv' }).sender;
+    return pc.addTransceiver(kind, { direction: 'sendrecv' }).sender;
+  }
+
+  async function preparePeerMedia(pc) {
+    const stream = await waitForLocalMedia();
+
+    // Reserva AUDIO e VIDEO na primeira negociação, mesmo que um deles
+    // esteja desligado naquele momento. Isso permite replaceTrack depois
+    // sem quebrar a negociação.
+    const audioSender = ensureMediaSlot(pc, 'audio');
+    const videoSender = ensureMediaSlot(pc, 'video');
+
+    const audioTrack = stream.getAudioTracks()[0] || null;
+    const videoTrack = stream.getVideoTracks()[0] || null;
+
+    if (audioSender.track !== audioTrack) {
+      await audioSender.replaceTrack(audioTrack);
+    }
+    if (videoSender.track !== videoTrack) {
+      await videoSender.replaceTrack(videoTrack);
+    }
+
+    for (const t of pc.getTransceivers()) {
+      try { t.direction = 'sendrecv'; } catch (_) {}
+    }
   }
 
   async function makeOffer(targetId) {
     const pc = createPeer(targetId);
 
-    // CRÍTICO: o participante que entra só cria a oferta depois
-    // que o microfone/câmera realmente foram anexados ao PeerConnection.
-    await attachLocalTracks(pc);
+    // O participante que JÁ ESTÁ na sala cria a oferta.
+    // Áudio e vídeo ficam reservados em sendrecv desde o começo.
+    await preparePeerMedia(pc);
 
-    const offer = await pc.createOffer({
-      offerToReceiveAudio: true,
-      offerToReceiveVideo: true
-    });
+    const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socketRef.current.emit('webrtc-offer', { target: targetId, offer });
   }
@@ -269,8 +284,21 @@ function App() {
     socket.on('disconnect', () => setStatus('Reconectando ao servidor...'));
     socket.on('connect_error', () => setStatus('Servidor indisponível'));
 
-    socket.on('room-users', async users => {
-      for (const u of users) await makeOffer(u.socketId);
+    socket.on('room-users', users => {
+      // O novo participante apenas registra quem já está na sala.
+      // Quem já estava conectado será responsável por criar a oferta.
+      if (users?.length) setStatus('Preparando conexão de mídia...');
+    });
+
+    socket.on('user-joined', async user => {
+      // Direção estável: participante existente -> novo participante.
+      // Evita o padrão em que somente o criador enviava áudio/tela.
+      try {
+        await makeOffer(user.socketId);
+      } catch (e) {
+        console.error('Falha ao criar oferta para novo participante:', e);
+        setStatus('Falha ao negociar mídia');
+      }
     });
     socket.on('participants', list => {
       setParticipants(list);
@@ -287,9 +315,9 @@ function App() {
       await pc.setRemoteDescription(offer);
       await flushIce(from, pc);
 
-      // Garante que quem já estava na sala também anexe sua mídia
-      // antes de responder à negociação.
-      await attachLocalTracks(pc);
+      // O novo participante responde já com áudio/vídeo preparados
+      // nos mesmos m-lines da oferta recebida.
+      await preparePeerMedia(pc);
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -418,7 +446,7 @@ function App() {
         screenStreamRef.current = stream;
         const track = stream.getVideoTracks()[0];
         for (const pc of peersRef.current.values()) {
-          const sender = ensureVideoSlot(pc);
+          const sender = ensureMediaSlot(pc, 'video');
           await sender.replaceTrack(track);
         }
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
@@ -432,9 +460,11 @@ function App() {
 
   async function stopScreenShare() {
     const camTrack = localStreamRef.current?.getVideoTracks()[0];
-    for (const pc of peersRef.current.values()) {
-      const sender = ensureVideoSlot(pc);
-      await sender.replaceTrack(camTrack || null);
+    if (camTrack) {
+      for (const pc of peersRef.current.values()) {
+        const sender = ensureMediaSlot(pc, 'video');
+        await sender.replaceTrack(camTrack || null);
+      }
     }
     screenStreamRef.current?.getTracks().forEach(t => t.stop());
     screenStreamRef.current = null;
