@@ -15,9 +15,35 @@ app.use(cors());
 app.get('/health', (_, res) => res.json({
   ok: true,
   service: 'Secret Call',
-  version: '1.3',
+  version: '1.4',
   rooms: rooms?.size ?? 0
 }));
+
+app.get('/ice-config', (_, res) => {
+  const username = process.env.TURN_USERNAME || '';
+  const credential = process.env.TURN_PASSWORD || '';
+
+  const iceServers = [
+    { urls: 'stun:stun.relay.metered.ca:80' },
+    { urls: 'stun:stun.l.google.com:19302' }
+  ];
+
+  if (username && credential) {
+    iceServers.push(
+      { urls: 'turn:global.relay.metered.ca:80', username, credential },
+      { urls: 'turn:global.relay.metered.ca:80?transport=tcp', username, credential },
+      { urls: 'turn:global.relay.metered.ca:443', username, credential },
+      { urls: 'turns:global.relay.metered.ca:443?transport=tcp', username, credential }
+    );
+  }
+
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    ok: true,
+    turnEnabled: Boolean(username && credential),
+    iceServers
+  });
+});
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -188,12 +214,12 @@ io.on('connection', socket => {
 if (process.env.NODE_ENV === 'production' && process.env.SERVE_CLIENT !== 'false') {
   app.use(express.static(CLIENT_DIST));
   app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/socket.io') || req.path === '/health') return next();
+    if (req.path.startsWith('/socket.io') || req.path === '/health' || req.path === '/ice-config') return next();
     res.sendFile(path.join(CLIENT_DIST, 'index.html'));
   });
 }
 
 const PORT = Number(process.env.PORT || 3001);
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Secret Call V1.3 rodando na porta ${PORT}`);
+  console.log(`Secret Call V1.4 rodando na porta ${PORT}`);
 });

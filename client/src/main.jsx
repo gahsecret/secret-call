@@ -9,16 +9,9 @@ const SIGNALING =
     ? `${window.location.protocol}//${window.location.hostname}:3001`
     : window.location.origin);
 
-const iceServers = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  ...(import.meta.env.VITE_TURN_URL
-    ? [{
-        urls: import.meta.env.VITE_TURN_URL,
-        username: import.meta.env.VITE_TURN_USERNAME || '',
-        credential: import.meta.env.VITE_TURN_CREDENTIAL || ''
-      }]
-    : [])
+const DEFAULT_ICE_SERVERS = [
+  { urls: 'stun:stun.relay.metered.ca:80' },
+  { urls: 'stun:stun.l.google.com:19302' }
 ];
 
 function App() {
@@ -38,12 +31,16 @@ function App() {
   const [sharingCount, setSharingCount] = useState(0);
   const [status, setStatus] = useState('Pronto');
   const [remoteStreams, setRemoteStreams] = useState({});
+  const [turnEnabled, setTurnEnabled] = useState(false);
+  const [peerStates, setPeerStates] = useState({});
 
   const socketRef = useRef(null);
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
   const peersRef = useRef(new Map());
+  const iceServersRef = useRef(DEFAULT_ICE_SERVERS);
+  const pendingIceRef = useRef(new Map());
 
   useEffect(() => () => cleanup(), []);
 
@@ -106,19 +103,52 @@ function App() {
     }
   }
 
+  async function loadIceConfig() {
+    try {
+      const response = await fetch(`${SIGNALING}/ice-config`, { cache: 'no-store' });
+      if (!response.ok) throw new Error('ICE config indisponível');
+      const data = await response.json();
+      if (Array.isArray(data.iceServers) && data.iceServers.length) {
+        iceServersRef.current = data.iceServers;
+      }
+      setTurnEnabled(Boolean(data.turnEnabled));
+      return Boolean(data.turnEnabled);
+    } catch (e) {
+      console.warn('Falha ao carregar TURN; usando STUN padrão:', e);
+      iceServersRef.current = DEFAULT_ICE_SERVERS;
+      setTurnEnabled(false);
+      return false;
+    }
+  }
+
+  function queueIce(peerId, candidate) {
+    const list = pendingIceRef.current.get(peerId) || [];
+    list.push(candidate);
+    pendingIceRef.current.set(peerId, list);
+  }
+
+  async function flushIce(peerId, pc) {
+    const list = pendingIceRef.current.get(peerId) || [];
+    pendingIceRef.current.delete(peerId);
+    for (const candidate of list) {
+      try { await pc.addIceCandidate(candidate); }
+      catch (e) { console.warn('ICE pendente rejeitado:', e); }
+    }
+  }
+
   async function preparePreview(mode) {
     if (!name.trim()) return alert('Digite seu nome.');
     if (mode === 'join' && !codeInput.trim()) return alert('Digite o código da sala.');
     setPreCallMode(mode);
     setStatus('Preparando entrada...');
     ensureBaseStream();
-    await Promise.allSettled([ensureAudio(), ensureVideo()]);
+    await Promise.allSettled([ensureAudio(), ensureVideo(), loadIceConfig()]);
     setStatus('Pronto para entrar');
   }
 
   function createPeer(targetId) {
     if (peersRef.current.has(targetId)) return peersRef.current.get(targetId);
-    const pc = new RTCPeerConnection({ iceServers });
+    const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
     localStreamRef.current?.getTracks().forEach(track => pc.addTrack(track, localStreamRef.current));
     pc.onicecandidate = e => {
       if (e.candidate) socketRef.current?.emit('webrtc-ice-candidate', { target: targetId, candidate: e.candidate });
@@ -126,6 +156,14 @@ function App() {
     pc.ontrack = e => {
       setRemoteStreams(prev => ({ ...prev, [targetId]: e.streams[0] }));
     };
+    const updatePeerState = () => {
+      const value = pc.connectionState || pc.iceConnectionState || 'new';
+      setPeerStates(prev => ({ ...prev, [targetId]: value }));
+      if (value === 'connected') setStatus(turnEnabled ? 'Mídia conectada • TURN disponível' : 'Mídia conectada');
+      if (value === 'failed') setStatus('Falha na conexão de mídia');
+    };
+    pc.onconnectionstatechange = updatePeerState;
+    pc.oniceconnectionstatechange = updatePeerState;
     peersRef.current.set(targetId, pc);
     return pc;
   }
@@ -168,17 +206,26 @@ function App() {
     socket.on('webrtc-offer', async ({ from, offer }) => {
       const pc = createPeer(from);
       await pc.setRemoteDescription(offer);
+      await flushIce(from, pc);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       socket.emit('webrtc-answer', { target: from, answer });
     });
     socket.on('webrtc-answer', async ({ from, answer }) => {
       const pc = peersRef.current.get(from);
-      if (pc && !pc.currentRemoteDescription) await pc.setRemoteDescription(answer);
+      if (pc && !pc.currentRemoteDescription) {
+        await pc.setRemoteDescription(answer);
+        await flushIce(from, pc);
+      }
     });
     socket.on('webrtc-ice-candidate', async ({ from, candidate }) => {
       const pc = createPeer(from);
-      try { await pc.addIceCandidate(candidate); } catch (e) { console.warn(e); }
+      if (!pc.remoteDescription) {
+        queueIce(from, candidate);
+        return;
+      }
+      try { await pc.addIceCandidate(candidate); }
+      catch (e) { console.warn('ICE candidate rejeitado:', e); }
     });
     socket.on('user-left', ({ socketId }) => {
       peersRef.current.get(socketId)?.close();
@@ -190,6 +237,7 @@ function App() {
 
   async function enterSelectedRoom() {
     try {
+      if (!iceServersRef.current?.length) await loadIceConfig();
       const socket = await connectSocket();
       const currentMode = preCallMode;
       if (currentMode === 'create') {
@@ -324,6 +372,8 @@ function App() {
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     peersRef.current.forEach(pc => pc.close());
     peersRef.current.clear();
+    pendingIceRef.current.clear();
+    setPeerStates({});
     socketRef.current?.disconnect();
   }
 
@@ -399,14 +449,15 @@ function App() {
       <section className="stage">
         <header>
           <div><h2>SECRET CALL</h2><p>{status}</p></div>
-          <div className="topStats"><span>🖥 {sharingCount}/3 compartilhando</span><div className="quality"><span>Qualidade</span><select value={quality} onChange={e => setQuality(e.target.value)}><option value="720">720p</option><option value="1080">1080p</option></select></div></div>
+          <div className="topStats"><span className={turnEnabled ? 'turnBadge turnOn' : 'turnBadge'}>{turnEnabled ? '🛡 TURN ativo' : '⚠ TURN inativo'}</span><span>🖥 {sharingCount}/3 compartilhando</span><div className="quality"><span>Qualidade</span><select value={quality} onChange={e => setQuality(e.target.value)}><option value="720">720p</option><option value="1080">1080p</option></select></div></div>
         </header>
         <div className="videoGrid">
           <VideoTile streamRef={localVideoRef} label={`${name} (você)${sharing ? ' • TELA' : ''}`} muted onPop={() => popout(localStream, `${name} • ${sharing ? 'Tela' : 'Câmera'}`)} />
           {Object.entries(remoteStreams).map(([id, stream]) => {
             const p = participants.find(x => x.socketId === id);
             const label = `${p?.name || 'Convidado'}${p?.sharing ? ' • TELA' : ''}`;
-            return <RemoteVideo key={id} stream={stream} label={label} onPop={() => popout(stream, label)} />;
+            const state = peerStates[id] || 'conectando';
+            return <RemoteVideo key={id} stream={stream} label={`${label} • ${state}`} onPop={() => popout(stream, label)} />;
           })}
           {Object.keys(remoteStreams).length === 0 && <div className="emptyTile"><div className="emptyIcon">#</div><h3>{roomCode}</h3><p>Envie apenas este código para seus amigos.</p><button onClick={copyCode}>Copiar código</button></div>}
         </div>

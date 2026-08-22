@@ -386,3 +386,6 @@ button {
 .preCallInfo{display:flex;flex-direction:column;gap:4px;margin:14px 0;color:#8fa7bb}
 .preCallInfo b{color:#e5f2fb}.preCallInfo span{font-size:12px}
 @media(max-width:620px){.preControls{grid-template-columns:1fr}}
+
+.turnBadge { border:1px solid #7b3340; background:#241016; color:#ff9eaa; padding:7px 10px; border-radius:999px; font-size:12px; }
+.turnBadge.turnOn { border-color:#1c6047; background:#0d2a20; color:#7ce3b7; }
