@@ -1,16 +1,15 @@
-# Secret Call V1.4.4 — Bidirectional Media Fix
+# Secret Call V1.4.5 — Remote Track Fix
 
-Base: V1.4.1 (áudio que funcionou no teste).
+Baseada diretamente na V1.4.1 que apresentou o melhor resultado de áudio.
 
-Correções:
-- A negociação foi invertida: quem JÁ ESTÁ na sala cria a oferta para quem acabou de entrar.
-- O novo participante responde à oferta já com sua mídia preparada.
-- Áudio e vídeo têm canais sendrecv reservados desde a primeira negociação.
-- Ligar câmera/microfone depois usa replaceTrack.
-- Compartilhamento usa o mesmo canal de vídeo e não renegocia a call.
-- TURN e fila de ICE continuam ativos.
+Correção principal:
+- O recebimento remoto não usa mais apenas `event.streams[0]`.
+- Cada `event.track` recebido é colocado manualmente em um MediaStream por participante.
+- Isso evita perder áudio/vídeo quando `RTCTrackEvent.streams` chega vazio.
+- O vídeo remoto chama `play()` explicitamente.
+- A negociação da V1.4.1 foi preservada.
+- TURN e fila ICE foram preservados.
 
-Teste:
-1. Criador e convidado devem se ouvir nos dois sentidos.
-2. Criador compartilha -> convidado vê.
-3. Convidado compartilha -> criador vê.
+Diagnóstico:
+Dentro da call clique em `🔧 Diagnóstico`.
+Para cada pessoa ele mostra conexão, ICE, senders, receivers e tracks realmente recebidas.

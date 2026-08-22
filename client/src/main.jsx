@@ -33,6 +33,8 @@ function App() {
   const [remoteStreams, setRemoteStreams] = useState({});
   const [turnEnabled, setTurnEnabled] = useState(false);
   const [peerStates, setPeerStates] = useState({});
+  const [diagnostics, setDiagnostics] = useState({});
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   const socketRef = useRef(null);
   const localVideoRef = useRef(null);
@@ -44,6 +46,7 @@ function App() {
   const mediaReadyPromiseRef = useRef(Promise.resolve());
   const wantsMicRef = useRef(true);
   const wantsCamRef = useRef(true);
+  const remoteMediaRef = useRef(new Map());
 
   useEffect(() => () => cleanup(), []);
 
@@ -200,11 +203,56 @@ function App() {
       if (e.candidate) socketRef.current?.emit('webrtc-ice-candidate', { target: targetId, candidate: e.candidate });
     };
     pc.ontrack = e => {
-      setRemoteStreams(prev => ({ ...prev, [targetId]: e.streams[0] }));
+      // Não depende de event.streams[0]. Alguns navegadores/conexões
+      // entregam a track corretamente, mas streams[] vem vazio.
+      let remote = remoteMediaRef.current.get(targetId);
+      if (!remote) {
+        remote = new MediaStream();
+        remoteMediaRef.current.set(targetId, remote);
+      }
+
+      const already = remote.getTracks().some(t => t.id === e.track.id);
+      if (!already) remote.addTrack(e.track);
+
+      // Atualiza o React com um objeto MediaStream válido em qualquer caso.
+      setRemoteStreams(prev => ({ ...prev, [targetId]: remote }));
+
+      const refreshDiag = () => {
+        const audioTracks = remote.getAudioTracks();
+        const videoTracks = remote.getVideoTracks();
+        setDiagnostics(prev => ({
+          ...prev,
+          [targetId]: {
+            ...(prev[targetId] || {}),
+            receivedAudio: audioTracks.length,
+            receivedVideo: videoTracks.length,
+            audioState: audioTracks[0]?.readyState || 'none',
+            videoState: videoTracks[0]?.readyState || 'none'
+          }
+        }));
+      };
+
+      refreshDiag();
+      e.track.onunmute = refreshDiag;
+      e.track.onmute = refreshDiag;
+      e.track.onended = refreshDiag;
     };
     const updatePeerState = () => {
       const value = pc.connectionState || pc.iceConnectionState || 'new';
       setPeerStates(prev => ({ ...prev, [targetId]: value }));
+      setDiagnostics(prev => ({
+        ...prev,
+        [targetId]: {
+          ...(prev[targetId] || {}),
+          connection: pc.connectionState || 'new',
+          ice: pc.iceConnectionState || 'new',
+          signaling: pc.signalingState || 'stable',
+          localAudioSenders: pc.getSenders().filter(s => s.track?.kind === 'audio').length,
+          localVideoSenders: pc.getSenders().filter(s => s.track?.kind === 'video').length,
+          remoteAudioReceivers: pc.getReceivers().filter(r => r.track?.kind === 'audio').length,
+          remoteVideoReceivers: pc.getReceivers().filter(r => r.track?.kind === 'video').length
+        }
+      }));
       if (value === 'connected') setStatus(turnEnabled ? 'Mídia conectada • TURN disponível' : 'Mídia conectada');
       if (value === 'failed') setStatus('Falha na conexão de mídia');
     };
@@ -214,57 +262,17 @@ function App() {
     return pc;
   }
 
-
-  function getSenderForKind(pc, kind) {
-    const direct = pc.getSenders().find(sender => sender.track?.kind === kind);
-    if (direct) return direct;
-
-    const tx = pc.getTransceivers().find(t =>
-      t.sender?.track?.kind === kind ||
-      t.receiver?.track?.kind === kind
-    );
-    return tx?.sender || null;
-  }
-
-  function ensureMediaSlot(pc, kind) {
-    const existing = getSenderForKind(pc, kind);
-    if (existing) return existing;
-
-    return pc.addTransceiver(kind, { direction: 'sendrecv' }).sender;
-  }
-
-  async function preparePeerMedia(pc) {
-    const stream = await waitForLocalMedia();
-
-    // Reserva AUDIO e VIDEO na primeira negociação, mesmo que um deles
-    // esteja desligado naquele momento. Isso permite replaceTrack depois
-    // sem quebrar a negociação.
-    const audioSender = ensureMediaSlot(pc, 'audio');
-    const videoSender = ensureMediaSlot(pc, 'video');
-
-    const audioTrack = stream.getAudioTracks()[0] || null;
-    const videoTrack = stream.getVideoTracks()[0] || null;
-
-    if (audioSender.track !== audioTrack) {
-      await audioSender.replaceTrack(audioTrack);
-    }
-    if (videoSender.track !== videoTrack) {
-      await videoSender.replaceTrack(videoTrack);
-    }
-
-    for (const t of pc.getTransceivers()) {
-      try { t.direction = 'sendrecv'; } catch (_) {}
-    }
-  }
-
   async function makeOffer(targetId) {
     const pc = createPeer(targetId);
 
-    // O participante que JÁ ESTÁ na sala cria a oferta.
-    // Áudio e vídeo ficam reservados em sendrecv desde o começo.
-    await preparePeerMedia(pc);
+    // CRÍTICO: o participante que entra só cria a oferta depois
+    // que o microfone/câmera realmente foram anexados ao PeerConnection.
+    await attachLocalTracks(pc);
 
-    const offer = await pc.createOffer();
+    const offer = await pc.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true
+    });
     await pc.setLocalDescription(offer);
     socketRef.current.emit('webrtc-offer', { target: targetId, offer });
   }
@@ -284,21 +292,8 @@ function App() {
     socket.on('disconnect', () => setStatus('Reconectando ao servidor...'));
     socket.on('connect_error', () => setStatus('Servidor indisponível'));
 
-    socket.on('room-users', users => {
-      // O novo participante apenas registra quem já está na sala.
-      // Quem já estava conectado será responsável por criar a oferta.
-      if (users?.length) setStatus('Preparando conexão de mídia...');
-    });
-
-    socket.on('user-joined', async user => {
-      // Direção estável: participante existente -> novo participante.
-      // Evita o padrão em que somente o criador enviava áudio/tela.
-      try {
-        await makeOffer(user.socketId);
-      } catch (e) {
-        console.error('Falha ao criar oferta para novo participante:', e);
-        setStatus('Falha ao negociar mídia');
-      }
+    socket.on('room-users', async users => {
+      for (const u of users) await makeOffer(u.socketId);
     });
     socket.on('participants', list => {
       setParticipants(list);
@@ -315,9 +310,9 @@ function App() {
       await pc.setRemoteDescription(offer);
       await flushIce(from, pc);
 
-      // O novo participante responde já com áudio/vídeo preparados
-      // nos mesmos m-lines da oferta recebida.
-      await preparePeerMedia(pc);
+      // Garante que quem já estava na sala também anexe sua mídia
+      // antes de responder à negociação.
+      await attachLocalTracks(pc);
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -342,7 +337,9 @@ function App() {
     socket.on('user-left', ({ socketId }) => {
       peersRef.current.get(socketId)?.close();
       peersRef.current.delete(socketId);
+      remoteMediaRef.current.delete(socketId);
       setRemoteStreams(prev => { const n = { ...prev }; delete n[socketId]; return n; });
+      setDiagnostics(prev => { const n = { ...prev }; delete n[socketId]; return n; });
     });
     return socket;
   }
@@ -446,8 +443,8 @@ function App() {
         screenStreamRef.current = stream;
         const track = stream.getVideoTracks()[0];
         for (const pc of peersRef.current.values()) {
-          const sender = ensureMediaSlot(pc, 'video');
-          await sender.replaceTrack(track);
+          const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+          if (sender) await sender.replaceTrack(track);
         }
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
         track.onended = stopScreenShare;
@@ -462,8 +459,8 @@ function App() {
     const camTrack = localStreamRef.current?.getVideoTracks()[0];
     if (camTrack) {
       for (const pc of peersRef.current.values()) {
-        const sender = ensureMediaSlot(pc, 'video');
-        await sender.replaceTrack(camTrack || null);
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) await sender.replaceTrack(camTrack);
       }
     }
     screenStreamRef.current?.getTracks().forEach(t => t.stop());
@@ -489,7 +486,9 @@ function App() {
     peersRef.current.forEach(pc => pc.close());
     peersRef.current.clear();
     pendingIceRef.current.clear();
+    remoteMediaRef.current.clear();
     setPeerStates({});
+    setDiagnostics({});
     socketRef.current?.disconnect();
   }
 
@@ -565,8 +564,23 @@ function App() {
       <section className="stage">
         <header>
           <div><h2>SECRET CALL</h2><p>{status}</p></div>
-          <div className="topStats"><span className={turnEnabled ? 'turnBadge turnOn' : 'turnBadge'}>{turnEnabled ? '🛡 TURN ativo' : '⚠ TURN inativo'}</span><span>🖥 {sharingCount}/3 compartilhando</span><div className="quality"><span>Qualidade</span><select value={quality} onChange={e => setQuality(e.target.value)}><option value="720">720p</option><option value="1080">1080p</option></select></div></div>
+          <div className="topStats"><button className="diagToggle" onClick={() => setShowDiagnostics(v => !v)}>🔧 Diagnóstico</button><span className={turnEnabled ? 'turnBadge turnOn' : 'turnBadge'}>{turnEnabled ? '🛡 TURN ativo' : '⚠ TURN inativo'}</span><span>🖥 {sharingCount}/3 compartilhando</span><div className="quality"><span>Qualidade</span><select value={quality} onChange={e => setQuality(e.target.value)}><option value="720">720p</option><option value="1080">1080p</option></select></div></div>
         </header>
+        {showDiagnostics && <div className="diagPanel">
+          <b>Diagnóstico WebRTC</b>
+          {participants.filter(p => p.socketId !== socketRef.current?.id).length === 0 && <span>Nenhum peer remoto conectado.</span>}
+          {participants.filter(p => p.socketId !== socketRef.current?.id).map(p => {
+            const d = diagnostics[p.socketId] || {};
+            return <div className="diagPeer" key={p.socketId}>
+              <strong>{p.name}</strong>
+              <span>Conexão: {d.connection || peerStates[p.socketId] || 'new'}</span>
+              <span>ICE: {d.ice || 'new'}</span>
+              <span>Enviando: áudio {d.localAudioSenders ?? 0} • vídeo {d.localVideoSenders ?? 0}</span>
+              <span>Receivers: áudio {d.remoteAudioReceivers ?? 0} • vídeo {d.remoteVideoReceivers ?? 0}</span>
+              <span>Tracks recebidas: áudio {d.receivedAudio ?? 0} ({d.audioState || 'none'}) • vídeo {d.receivedVideo ?? 0} ({d.videoState || 'none'})</span>
+            </div>;
+          })}
+        </div>}
         <div className="videoGrid">
           <VideoTile streamRef={localVideoRef} label={`${name} (você)${sharing ? ' • TELA' : ''}`} muted onPop={() => popout(localStream, `${name} • ${sharing ? 'Tela' : 'Câmera'}`)} />
           {Object.entries(remoteStreams).map(([id, stream]) => {
@@ -594,7 +608,13 @@ function VideoTile({ streamRef, label, muted, onPop }) {
 }
 function RemoteVideo({ stream, label, onPop }) {
   const ref = useRef(null);
-  useEffect(() => { if (ref.current) ref.current.srcObject = stream; }, [stream]);
+  useEffect(() => {
+    const video = ref.current;
+    if (!video || !stream) return;
+    if (video.srcObject !== stream) video.srcObject = stream;
+    const p = video.play();
+    if (p?.catch) p.catch(err => console.warn('Autoplay remoto bloqueado:', err));
+  }, [stream]);
   return <div className="videoTile"><video ref={ref} autoPlay playsInline/><span className="videoLabel">{label}</span><button className="popBtn" onClick={onPop}>↗ Abrir em janela</button></div>;
 }
 
