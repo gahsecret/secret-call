@@ -392,9 +392,31 @@ function App() {
         });
         screenStreamRef.current = stream;
         const track = stream.getVideoTracks()[0];
-        for (const pc of peersRef.current.values()) {
-          const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-          if (sender) await sender.replaceTrack(track);
+
+        // Compartilhamento precisa funcionar para quem criou OU entrou na sala.
+        // Se já houver sender de vídeo, troca a câmera pela tela. Se não houver,
+        // cria o sender e renegocia a conexão para o outro participante recebê-lo.
+        for (const [targetId, pc] of peersRef.current.entries()) {
+          let sender = pc.getSenders().find(s => s.track?.kind === 'video');
+          let needsRenegotiation = false;
+
+          if (sender) {
+            await sender.replaceTrack(track);
+          } else {
+            pc.addTrack(track, stream);
+            needsRenegotiation = true;
+          }
+
+          // Renegocia também após replaceTrack para manter o fluxo consistente
+          // entre criador e participante que entrou pelo código.
+          if (needsRenegotiation || pc.signalingState === 'stable') {
+            const offer = await pc.createOffer({
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: true
+            });
+            await pc.setLocalDescription(offer);
+            socketRef.current?.emit('webrtc-offer', { target: targetId, offer });
+          }
         }
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
         track.onended = stopScreenShare;
@@ -407,10 +429,18 @@ function App() {
 
   async function stopScreenShare() {
     const camTrack = localStreamRef.current?.getVideoTracks()[0];
-    if (camTrack) {
-      for (const pc of peersRef.current.values()) {
-        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-        if (sender) await sender.replaceTrack(camTrack);
+    for (const [targetId, pc] of peersRef.current.entries()) {
+      const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+      if (sender) {
+        await sender.replaceTrack(camTrack || null);
+        if (pc.signalingState === 'stable') {
+          const offer = await pc.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: true
+          });
+          await pc.setLocalDescription(offer);
+          socketRef.current?.emit('webrtc-offer', { target: targetId, offer });
+        }
       }
     }
     screenStreamRef.current?.getTracks().forEach(t => t.stop());
