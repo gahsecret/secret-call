@@ -713,3 +713,258 @@ button {
   .gamerBottomControls { grid-template-columns:repeat(3,1fr);border-radius:18px; }
   .gamerRight { width:min(330px,92vw); }
 }
+
+
+/* =========================================================
+   SECRET CALL V1.4.9 — UNIFIED NEON UI
+   LOGIN + PRECALL + ROOM com o mesmo tema.
+   ========================================================= */
+
+.neonLanding,
+.neonPreCall {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 12% 50%, rgba(138, 25, 255, .20), transparent 30%),
+    radial-gradient(circle at 88% 55%, rgba(20, 93, 255, .20), transparent 34%),
+    linear-gradient(180deg, #03050d 0%, #050814 55%, #03050a 100%);
+}
+
+.neonLanding::before,
+.neonPreCall::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(35deg, transparent 0 9%, rgba(177,31,255,.22) 9.2% 9.4%, transparent 9.6% 100%),
+    linear-gradient(145deg, transparent 0 83%, rgba(37,104,255,.20) 83.2% 83.4%, transparent 83.6% 100%);
+  opacity: .9;
+}
+
+.neonLanding::after,
+.neonPreCall::after {
+  content:"";
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  background-image:
+    radial-gradient(circle at 8% 52%, rgba(205,53,255,.9) 0 2px, transparent 3px),
+    radial-gradient(circle at 91% 47%, rgba(33,110,255,.9) 0 2px, transparent 3px),
+    radial-gradient(circle at 15% 41%, rgba(186,46,255,.65) 0 1px, transparent 2px),
+    radial-gradient(circle at 83% 62%, rgba(37,112,255,.65) 0 1px, transparent 2px);
+  filter: drop-shadow(0 0 7px currentColor);
+}
+
+.neonBrand {
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  z-index: 2;
+}
+
+.neonBrand > div:last-child {
+  text-align: center;
+}
+
+.neonBrand h1 {
+  font-size: 42px;
+  letter-spacing: .04em;
+  font-weight: 950;
+  margin: 0;
+}
+
+.neonBrand h1 span {
+  background: linear-gradient(90deg,#a722ff,#316eff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.neonBrand p {
+  color:#9caac0;
+  margin-top:7px;
+  font-size:15px;
+}
+
+.neonSLogo {
+  width:76px;
+  height:76px;
+  border-radius:22px;
+  display:grid;
+  place-items:center;
+  margin:auto;
+  font-size:42px;
+  font-weight:1000;
+  transform: rotate(-2deg);
+  color:white;
+  background:
+    linear-gradient(135deg,#7b25ff,#c321ff 42%,#176cff 100%);
+  box-shadow:
+    0 0 18px rgba(129,40,255,.65),
+    0 0 48px rgba(40,106,255,.25);
+  clip-path: polygon(25% 0, 75% 0, 100% 22%, 100% 78%, 75% 100%, 25% 100%, 0 78%, 0 22%);
+}
+
+.neonJoinCard,
+.neonPreCard {
+  position:relative;
+  z-index:2;
+  border:1px solid transparent !important;
+  background:
+    linear-gradient(#07101b,#07101b) padding-box,
+    linear-gradient(90deg,#ae21ff,#185eff) border-box !important;
+  box-shadow:
+    0 24px 80px rgba(0,0,0,.48),
+    0 0 28px rgba(110,40,255,.12);
+}
+
+.neonJoinCard {
+  width:min(620px,92vw);
+  padding:28px 30px;
+}
+
+.neonJoinCard label {
+  color:#d9e1ee;
+  font-weight:650;
+}
+
+.neonInput {
+  border:1px solid transparent !important;
+  background:
+    linear-gradient(#07111d,#07111d) padding-box,
+    linear-gradient(90deg,#b423ff,#186dff) border-box !important;
+  color:#fff !important;
+  box-shadow: inset 0 0 28px rgba(67,53,153,.08);
+}
+
+.neonInput:focus {
+  box-shadow:
+    0 0 0 2px rgba(136,48,255,.11),
+    0 0 22px rgba(67,89,255,.15);
+}
+
+.neonPrimary {
+  background: linear-gradient(90deg,#b70aff 0%,#6235ff 48%,#0b79ff 100%) !important;
+  box-shadow: 0 0 26px rgba(101,55,255,.28);
+}
+
+.neonPrimary:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.07);
+}
+
+.neonSecondary {
+  border:1px solid transparent !important;
+  background:
+    linear-gradient(#091522,#091522) padding-box,
+    linear-gradient(90deg,#6429ff,#1970ff) border-box !important;
+}
+
+.neonFeatures {
+  width:min(620px,92vw);
+  justify-content:center;
+  z-index:2;
+}
+
+.neonFeatures span {
+  border:1px solid rgba(108,74,255,.32);
+  background:rgba(7,15,28,.92);
+  box-shadow:0 0 18px rgba(80,53,255,.08);
+}
+
+.neonPreCall {
+  min-height:100vh;
+  display:grid;
+  place-items:center;
+  align-content:center;
+  gap:18px;
+  padding:30px;
+}
+
+.neonPreCard {
+  width:min(760px,94vw);
+  padding:24px;
+}
+
+.neonPrePreview {
+  min-height:360px;
+  border:1px solid #1c3049;
+  border-radius:18px;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(92,36,255,.10), transparent 25%),
+    #04090f;
+  box-shadow: inset 0 0 50px rgba(0,0,0,.35);
+}
+
+.neonPrePreview .cameraOff {
+  font-size:20px;
+  color:#8ea0ba;
+}
+
+.neonToggle {
+  border-radius:12px !important;
+  min-height:52px;
+}
+.neonToggle.on {
+  border-color:#3d6dff !important;
+  box-shadow:0 0 14px rgba(51,95,255,.12);
+}
+.neonToggle.off {
+  border-color:#8b2c48 !important;
+  box-shadow:0 0 14px rgba(141,31,61,.10);
+}
+
+/* Sala — deixa a barra inferior na proporção do mockup */
+.compactControls {
+  width:min(760px,calc(100% - 48px)) !important;
+  min-height:0 !important;
+  padding:8px !important;
+  margin:10px auto 0 !important;
+  border-radius:22px !important;
+  align-self:center;
+}
+
+.compactControls button {
+  min-height:58px !important;
+  padding:6px 4px !important;
+  font-size:18px !important;
+}
+
+.compactControls button span {
+  font-size:10px !important;
+}
+
+.neonBottomBrand {
+  padding:6px 0 10px !important;
+  font-size:14px;
+}
+
+/* vídeo central ocupa mais espaço vertical */
+.gamerStage {
+  padding-bottom:4px !important;
+}
+
+.gamerVideoGrid {
+  grid-auto-rows:minmax(250px,1fr) !important;
+}
+
+/* mantém o dashboard mais próximo do mockup */
+.gamerShell {
+  grid-template-columns: 285px minmax(0,1fr) 300px !important;
+}
+
+.gamerLeft {
+  padding-top:22px !important;
+}
+
+.gamerRight {
+  padding-top:20px !important;
+}
+
+@media (max-width: 900px) {
+  .neonBrand h1 { font-size:34px; }
+  .neonSLogo { width:64px;height:64px;font-size:34px; }
+  .neonJoinCard, .neonPreCard { width:min(94vw,680px); }
+}
