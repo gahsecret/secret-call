@@ -1,16 +1,12 @@
-# Secret Call V1.4.1 — Correção de áudio bidirecional
+# Secret Call V1.4.3 — Stable Screen Share
 
-Esta versão corrige um problema em que o participante que CRIAVA a sala era ouvido,
-mas o participante que ENTRAVA pelo código não enviava áudio/vídeo de volta.
+Base exata: V1.4.1 enviada pelo usuário, onde o áudio bidirecional estava funcionando.
 
-## Correções
-- A entrada espera a preparação real de câmera/microfone antes do JOIN.
-- O participante que entra só cria a oferta WebRTC depois de anexar suas tracks.
-- Quem já está na sala anexa suas tracks antes de criar a resposta.
-- Transceivers com mídia são mantidos em `sendrecv`.
-- TURN Metered continua funcionando via `TURN_USERNAME` e `TURN_PASSWORD`.
-- Fila de ICE da V1.4 foi mantida.
+## O que foi alterado
+- Não há renegociação ao iniciar/parar compartilhamento.
+- Um canal de vídeo é reservado já na negociação inicial, inclusive para quem entra sem câmera.
+- Compartilhamento apenas usa `replaceTrack()` nesse canal.
+- Ao parar, volta para câmera ou para `null`.
+- Áudio, TURN e fila ICE permanecem com o comportamento da V1.4.1.
 
-## Atualização
-Copie os arquivos desta versão para o repositório, faça Commit + Push e espere o Render ficar Live.
-As variáveis TURN já configuradas no Render não precisam ser recriadas.
+A V1.4.2 foi descartada como base porque a renegociação de tela fazia o áudio regredir.

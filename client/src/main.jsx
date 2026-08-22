@@ -185,6 +185,10 @@ function App() {
       }
     }
 
+    // Fundamental para screen share bidirecional: mesmo quem entra sem câmera
+    // já negocia um canal de vídeo disponível para uso posterior.
+    ensureVideoSlot(pc);
+
     // Mantém os transceivers bidirecionais quando houver mídia local.
     for (const transceiver of pc.getTransceivers()) {
       if (transceiver.sender?.track && transceiver.direction !== 'sendrecv') {
@@ -212,6 +216,27 @@ function App() {
     pc.oniceconnectionstatechange = updatePeerState;
     peersRef.current.set(targetId, pc);
     return pc;
+  }
+
+  function getVideoSender(pc) {
+    const senderWithVideo = pc.getSenders().find(sender => sender.track?.kind === 'video');
+    if (senderWithVideo) return senderWithVideo;
+
+    const videoTransceiver = pc.getTransceivers().find(transceiver =>
+      transceiver.sender?.track?.kind === 'video' ||
+      transceiver.receiver?.track?.kind === 'video'
+    );
+    return videoTransceiver?.sender || null;
+  }
+
+  function ensureVideoSlot(pc) {
+    const existing = getVideoSender(pc);
+    if (existing) return existing;
+
+    // Reserva o canal de vídeo na PRIMEIRA negociação.
+    // Assim câmera/tela podem entrar depois via replaceTrack sem renegociar
+    // a chamada e sem tocar no áudio que já está estável.
+    return pc.addTransceiver('video', { direction: 'sendrecv' }).sender;
   }
 
   async function makeOffer(targetId) {
@@ -392,31 +417,9 @@ function App() {
         });
         screenStreamRef.current = stream;
         const track = stream.getVideoTracks()[0];
-
-        // Compartilhamento precisa funcionar para quem criou OU entrou na sala.
-        // Se já houver sender de vídeo, troca a câmera pela tela. Se não houver,
-        // cria o sender e renegocia a conexão para o outro participante recebê-lo.
-        for (const [targetId, pc] of peersRef.current.entries()) {
-          let sender = pc.getSenders().find(s => s.track?.kind === 'video');
-          let needsRenegotiation = false;
-
-          if (sender) {
-            await sender.replaceTrack(track);
-          } else {
-            pc.addTrack(track, stream);
-            needsRenegotiation = true;
-          }
-
-          // Renegocia também após replaceTrack para manter o fluxo consistente
-          // entre criador e participante que entrou pelo código.
-          if (needsRenegotiation || pc.signalingState === 'stable') {
-            const offer = await pc.createOffer({
-              offerToReceiveAudio: true,
-              offerToReceiveVideo: true
-            });
-            await pc.setLocalDescription(offer);
-            socketRef.current?.emit('webrtc-offer', { target: targetId, offer });
-          }
+        for (const pc of peersRef.current.values()) {
+          const sender = ensureVideoSlot(pc);
+          await sender.replaceTrack(track);
         }
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
         track.onended = stopScreenShare;
@@ -429,19 +432,9 @@ function App() {
 
   async function stopScreenShare() {
     const camTrack = localStreamRef.current?.getVideoTracks()[0];
-    for (const [targetId, pc] of peersRef.current.entries()) {
-      const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-      if (sender) {
-        await sender.replaceTrack(camTrack || null);
-        if (pc.signalingState === 'stable') {
-          const offer = await pc.createOffer({
-            offerToReceiveAudio: true,
-            offerToReceiveVideo: true
-          });
-          await pc.setLocalDescription(offer);
-          socketRef.current?.emit('webrtc-offer', { target: targetId, offer });
-        }
-      }
+    for (const pc of peersRef.current.values()) {
+      const sender = ensureVideoSlot(pc);
+      await sender.replaceTrack(camTrack || null);
     }
     screenStreamRef.current?.getTracks().forEach(t => t.stop());
     screenStreamRef.current = null;
