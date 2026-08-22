@@ -1,18 +1,24 @@
-# Secret Call V1.4.6 — Separate Screen Channel
+# Secret Call V1.4.7 — Screen Share Audio
 
-Esta versão foi criada diretamente a partir do ZIP exato enviado pelo usuário,
-que estava online com áudio funcionando.
+Baseada diretamente na V1.4.6 que estabilizou o compartilhamento de tela.
 
-## Mudança principal
-O compartilhamento de tela agora usa um RTCPeerConnection separado por participante.
+## O que mudou
+- O compartilhamento continua em PeerConnection separado da call.
+- Agora envia a track de vídeo da tela e também a track de áudio disponibilizada pelo navegador.
+- Microfone e câmera da call principal continuam isolados.
+- O receptor monta um MediaStream da transmissão com vídeo + áudio.
+- O status informa se o navegador realmente entregou áudio da transmissão.
+- TURN e ICE do canal separado continuam ativos.
+- package-lock.json do client e server foram preservados.
 
-Isso significa:
-- áudio/microfone continuam exatamente no PeerConnection principal;
-- câmera continua no PeerConnection principal;
-- compartilhar/parar tela NÃO renegocia áudio;
-- tela possui Offer/Answer/ICE próprios;
-- TURN configurado no Render é usado também pela tela;
-- até 3 compartilhamentos continuam controlados pelo servidor;
-- a tela aparece como tile separado `NOME • TELA`.
+## Importante sobre áudio da tela
+O navegador só fornece áudio quando o tipo de captura escolhido oferece isso.
 
-Os package-lock.json existentes no ZIP original foram preservados.
+Em navegadores Chromium (Chrome/Edge/Opera):
+- ao compartilhar uma aba, marque "Compartilhar áudio da guia";
+- ao compartilhar a tela inteira, use a opção "Compartilhar também o áudio do sistema" quando ela aparecer;
+- algumas combinações de navegador/SO não fornecem áudio para certas janelas específicas.
+
+Se o status mostrar:
+`sem áudio da transmissão`
+o navegador não forneceu nenhuma audio track, mesmo que o app tenha solicitado.

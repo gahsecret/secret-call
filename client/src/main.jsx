@@ -312,14 +312,32 @@ function App() {
     };
 
     pc.ontrack = e => {
-      if (e.track.kind !== 'video') return;
-      const stream = new MediaStream([e.track]);
-      setRemoteScreenStreams(prev => ({ ...prev, [targetId]: stream }));
+      let stream = null;
+
+      setRemoteScreenStreams(prev => {
+        stream = prev[targetId] || new MediaStream();
+
+        const exists = stream.getTracks().some(t => t.id === e.track.id);
+        if (!exists) stream.addTrack(e.track);
+
+        return { ...prev, [targetId]: stream };
+      });
+
       e.track.onended = () => {
         setRemoteScreenStreams(prev => {
-          const next = { ...prev };
-          delete next[targetId];
-          return next;
+          const current = prev[targetId];
+          if (!current) return prev;
+
+          try { current.removeTrack(e.track); } catch (_) {}
+
+          // Mantém o tile enquanto existir vídeo ou áudio da transmissão.
+          if (current.getTracks().length === 0) {
+            const next = { ...prev };
+            delete next[targetId];
+            return next;
+          }
+
+          return { ...prev, [targetId]: current };
         });
       };
     };
@@ -347,7 +365,11 @@ function App() {
     }
 
     pc = createScreenPeer(targetId);
-    pc.addTrack(track, screenStreamRef.current);
+
+    // Envia imagem + áudio da transmissão, se o navegador disponibilizar.
+    for (const mediaTrack of screenStreamRef.current.getTracks()) {
+      pc.addTrack(mediaTrack, screenStreamRef.current);
+    }
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -593,9 +615,16 @@ function App() {
             height: { ideal: is1080 ? 1080 : 720 },
             frameRate: { ideal: 30, max: 60 }
           },
-          // O áudio da call continua no PeerConnection principal.
-          // Não misturamos áudio do compartilhamento com o microfone.
-          audio: false
+          // Áudio do compartilhamento fica no PeerConnection exclusivo da tela.
+          // O microfone da call principal continua separado.
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+          },
+          // Hints suportados por navegadores Chromium quando disponíveis.
+          systemAudio: 'include',
+          surfaceSwitching: 'include'
         });
 
         screenStreamRef.current = stream;
@@ -605,8 +634,14 @@ function App() {
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
         track.onended = () => stopScreenShare();
 
+        const hasShareAudio = stream.getAudioTracks().length > 0;
+
         setSharing(true);
-        setStatus(`Compartilhando ${quality}p`);
+        setStatus(
+          hasShareAudio
+            ? `Compartilhando ${quality}p • áudio da transmissão ativo`
+            : `Compartilhando ${quality}p • sem áudio da transmissão`
+        );
 
         // Canal WebRTC EXCLUSIVO para tela. Não toca na call principal.
         await offerScreenToParticipants(participants);
@@ -791,10 +826,27 @@ function RemoteVideo({ stream, label, onPop }) {
     const video = ref.current;
     if (!video || !stream) return;
     if (video.srcObject !== stream) video.srcObject = stream;
-    const p = video.play();
-    if (p?.catch) p.catch(err => console.warn('Autoplay remoto bloqueado:', err));
+
+    video.muted = false;
+    video.volume = 1;
+
+    const tryPlay = () => {
+      const p = video.play();
+      if (p?.catch) p.catch(err => console.warn('Autoplay remoto bloqueado:', err));
+    };
+
+    tryPlay();
+
+    stream.getTracks().forEach(track => {
+      track.onunmute = tryPlay;
+    });
   }, [stream]);
-  return <div className="videoTile"><video ref={ref} autoPlay playsInline/><span className="videoLabel">{label}</span><button className="popBtn" onClick={onPop}>↗ Abrir em janela</button></div>;
+
+  return <div className="videoTile">
+    <video ref={ref} autoPlay playsInline/>
+    <span className="videoLabel">{label}</span>
+    <button className="popBtn" onClick={onPop}>↗ Abrir em janela</button>
+  </div>;
 }
 
 createRoot(document.getElementById('root')).render(<App/>);
