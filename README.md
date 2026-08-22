@@ -1,4 +1,4 @@
-# SECRET CALL V1.3 — ONLINE READY
+# SECRET CALL V1.3.1 — PRE-CALL
 
 Esta versão foi preparada para rodar em um servidor público 24h.
 
@@ -76,3 +76,11 @@ VITE_TURN_CREDENTIAL
 A transmissão ainda é P2P mesh.
 
 O limite visual/servidor é 10 pessoas e 3 compartilhamentos, mas para uma sala real com muitas pessoas usando 1080p/60 FPS, a próxima arquitetura recomendada é SFU (ex.: LiveKit/mediasoup) + TURN. Isso reduz muito o upload exigido de cada participante.
+
+
+## V1.3.1
+- Entrada não é mais bloqueada por falha da câmera.
+- Pré-call antes de criar/entrar.
+- Câmera e microfone independentes.
+- Pode entrar sem câmera, sem microfone ou somente como ouvinte.
+- Botão para tentar ativar câmera/microfone novamente.

@@ -28,6 +28,8 @@ function App() {
   const [codeExpiresAt, setCodeExpiresAt] = useState(0);
   const [countdown, setCountdown] = useState('05:00');
   const [joined, setJoined] = useState(false);
+  const [preCallMode, setPreCallMode] = useState(null);
+  const [mediaMessage, setMediaMessage] = useState('');
   const [participants, setParticipants] = useState([]);
   const [quality, setQuality] = useState('1080');
   const [micOn, setMicOn] = useState(true);
@@ -56,15 +58,62 @@ function App() {
     return () => clearInterval(t);
   }, [codeExpiresAt]);
 
-  async function ensureLocalMedia() {
-    if (localStreamRef.current) return localStreamRef.current;
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
-    });
-    localStreamRef.current = stream;
-    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-    return stream;
+  function refreshLocalPreview() {
+    if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
+  }
+
+  function ensureBaseStream() {
+    if (!localStreamRef.current) localStreamRef.current = new MediaStream();
+    return localStreamRef.current;
+  }
+
+  async function ensureAudio() {
+    const base = ensureBaseStream();
+    if (base.getAudioTracks().length) return true;
+    try {
+      const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      audioStream.getAudioTracks().forEach(track => base.addTrack(track));
+      setMicOn(true);
+      setMediaMessage('');
+      refreshLocalPreview();
+      return true;
+    } catch (e) {
+      console.warn('Microfone indisponível:', e);
+      setMicOn(false);
+      setMediaMessage('Microfone indisponível. Você ainda pode entrar na call.');
+      return false;
+    }
+  }
+
+  async function ensureVideo() {
+    const base = ensureBaseStream();
+    if (base.getVideoTracks().length) return true;
+    try {
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
+      });
+      videoStream.getVideoTracks().forEach(track => base.addTrack(track));
+      setCamOn(true);
+      setMediaMessage('');
+      refreshLocalPreview();
+      return true;
+    } catch (e) {
+      console.warn('Câmera indisponível:', e);
+      setCamOn(false);
+      setMediaMessage('Câmera indisponível. Você ainda pode entrar normalmente.');
+      return false;
+    }
+  }
+
+  async function preparePreview(mode) {
+    if (!name.trim()) return alert('Digite seu nome.');
+    if (mode === 'join' && !codeInput.trim()) return alert('Digite o código da sala.');
+    setPreCallMode(mode);
+    setStatus('Preparando entrada...');
+    ensureBaseStream();
+    await Promise.allSettled([ensureAudio(), ensureVideo()]);
+    setStatus('Pronto para entrar');
   }
 
   function createPeer(targetId) {
@@ -139,32 +188,42 @@ function App() {
     return socket;
   }
 
-  async function prepare() {
-    if (!name.trim()) throw new Error('Digite seu nome.');
-    setStatus('Solicitando câmera e microfone...');
-    await ensureLocalMedia();
-    return await connectSocket();
+  async function enterSelectedRoom() {
+    try {
+      const socket = await connectSocket();
+      const currentMode = preCallMode;
+      if (currentMode === 'create') {
+        socket.emit('create-room', { name: name.trim() }, res => {
+          if (!res?.ok) return alert(res?.error || 'Não foi possível criar a sala.');
+          setRoomCode(res.code);
+          setCodeExpiresAt(res.expiresAt);
+          setPreCallMode(null);
+          setJoined(true);
+          setStatus('Sala criada');
+          setTimeout(refreshLocalPreview, 50);
+        });
+      } else {
+        socket.emit('join-room', { code: codeInput.trim().toUpperCase(), name: name.trim() }, res => {
+          if (!res?.ok) return alert(res?.error || 'Não foi possível entrar.');
+          setRoomCode(res.code);
+          setCodeExpiresAt(res.expiresAt);
+          setPreCallMode(null);
+          setJoined(true);
+          setStatus('Conectado');
+          setTimeout(refreshLocalPreview, 50);
+        });
+      }
+    } catch (e) {
+      alert(e.message || 'Não foi possível conectar ao servidor.');
+    }
   }
 
-  async function createRoom() {
-    try {
-      const socket = await prepare();
-      socket.emit('create-room', { name: name.trim() }, res => {
-        if (!res?.ok) return alert(res?.error || 'Não foi possível criar a sala.');
-        setRoomCode(res.code); setCodeExpiresAt(res.expiresAt); setJoined(true); setStatus('Sala criada');
-      });
-    } catch (e) { alert(e.message || 'Erro ao acessar câmera/microfone.'); }
+  function createRoom() {
+    preparePreview('create');
   }
 
-  async function joinRoom() {
-    if (!codeInput.trim()) return alert('Digite o código da sala.');
-    try {
-      const socket = await prepare();
-      socket.emit('join-room', { code: codeInput.trim().toUpperCase(), name: name.trim() }, res => {
-        if (!res?.ok) return alert(res?.error || 'Não foi possível entrar.');
-        setRoomCode(res.code); setCodeExpiresAt(res.expiresAt); setJoined(true); setStatus('Conectado');
-      });
-    } catch (e) { alert(e.message || 'Erro ao acessar câmera/microfone.'); }
+  function joinRoom() {
+    preparePreview('join');
   }
 
   async function copyCode() {
@@ -172,13 +231,42 @@ function App() {
     setStatus('Código copiado');
   }
 
-  function toggleMic() {
-    localStreamRef.current?.getAudioTracks().forEach(t => t.enabled = !micOn);
+  async function toggleMic() {
+    const tracks = localStreamRef.current?.getAudioTracks() || [];
+    if (!tracks.length) {
+      const ok = await ensureAudio();
+      if (ok && joined) await syncNewTracks();
+      return;
+    }
+    tracks.forEach(t => t.enabled = !micOn);
     setMicOn(v => !v);
   }
-  function toggleCam() {
-    localStreamRef.current?.getVideoTracks().forEach(t => t.enabled = !camOn);
+
+  async function toggleCam() {
+    const tracks = localStreamRef.current?.getVideoTracks() || [];
+    if (!tracks.length) {
+      const ok = await ensureVideo();
+      if (ok && joined) await syncNewTracks();
+      return;
+    }
+    tracks.forEach(t => t.enabled = !camOn);
     setCamOn(v => !v);
+  }
+
+  async function syncNewTracks() {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    for (const [targetId, pc] of peersRef.current.entries()) {
+      for (const track of stream.getTracks()) {
+        const sender = pc.getSenders().find(s => s.track?.kind === track.kind);
+        if (!sender) pc.addTrack(track, stream);
+        else if (sender.track !== track) await sender.replaceTrack(track);
+      }
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socketRef.current?.emit('webrtc-offer', { target: targetId, offer });
+    }
+    refreshLocalPreview();
   }
 
   async function shareScreen() {
@@ -244,6 +332,33 @@ function App() {
     cleanup();
     setJoined(false); setParticipants([]); setRemoteStreams({}); setRoomCode(''); setCodeInput('');
   }
+
+  if (!joined && preCallMode) return (
+    <main className="landing">
+      <div className="brand brandCenter">
+        <div className="secretLogo"><span>SECRET</span><small>CALL</small></div>
+        <p>Antes de entrar, escolha como quer participar.</p>
+      </div>
+      <div className="preCallCard">
+        <div className="previewBox">
+          <video ref={localVideoRef} autoPlay playsInline muted />
+          {!camOn && <div className="cameraOff">Câmera desligada</div>}
+          <span>{name}</span>
+        </div>
+        {mediaMessage && <div className="mediaNotice">{mediaMessage}</div>}
+        <div className="preControls">
+          <button className={micOn ? '' : 'off'} onClick={toggleMic}>{micOn ? '🎤 Microfone ligado' : '🔇 Ligar microfone'}</button>
+          <button className={camOn ? '' : 'off'} onClick={toggleCam}>{camOn ? '📹 Câmera ligada' : '🚫 Tentar ligar câmera'}</button>
+        </div>
+        <div className="preCallInfo">
+          <b>{preCallMode === 'create' ? 'Criar nova sala' : `Entrar com código ${codeInput.toUpperCase()}`}</b>
+          <span>Mesmo sem câmera ou microfone você pode entrar.</span>
+        </div>
+        <button className="primary" onClick={enterSelectedRoom}>Entrar na call</button>
+        <button className="secondary" onClick={() => setPreCallMode(null)}>Voltar</button>
+      </div>
+    </main>
+  );
 
   if (!joined) return (
     <main className="landing">
