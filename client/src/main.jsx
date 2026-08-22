@@ -41,6 +41,9 @@ function App() {
   const peersRef = useRef(new Map());
   const iceServersRef = useRef(DEFAULT_ICE_SERVERS);
   const pendingIceRef = useRef(new Map());
+  const mediaReadyPromiseRef = useRef(Promise.resolve());
+  const wantsMicRef = useRef(true);
+  const wantsCamRef = useRef(true);
 
   useEffect(() => () => cleanup(), []);
 
@@ -140,16 +143,59 @@ function App() {
     if (!name.trim()) return alert('Digite seu nome.');
     if (mode === 'join' && !codeInput.trim()) return alert('Digite o código da sala.');
     setPreCallMode(mode);
-    setStatus('Preparando entrada...');
+    setStatus('Preparando câmera e microfone...');
     ensureBaseStream();
-    await Promise.allSettled([ensureAudio(), ensureVideo(), loadIceConfig()]);
+
+    const mediaPromise = Promise.allSettled([
+      wantsMicRef.current ? ensureAudio() : Promise.resolve(false),
+      wantsCamRef.current ? ensureVideo() : Promise.resolve(false),
+      loadIceConfig()
+    ]);
+
+    mediaReadyPromiseRef.current = mediaPromise;
+    await mediaPromise;
     setStatus('Pronto para entrar');
+  }
+
+  async function waitForLocalMedia() {
+    try {
+      await mediaReadyPromiseRef.current;
+    } catch (_) {}
+
+    const base = ensureBaseStream();
+
+    // Se o usuário quer microfone e ele ainda não existe, tenta novamente
+    // antes da primeira negociação WebRTC.
+    if (wantsMicRef.current && base.getAudioTracks().length === 0) {
+      await ensureAudio();
+    }
+
+    return base;
+  }
+
+  async function attachLocalTracks(pc) {
+    const stream = await waitForLocalMedia();
+
+    for (const track of stream.getTracks()) {
+      const sameKindSender = pc.getSenders().find(s => s.track?.kind === track.kind);
+      if (!sameKindSender) {
+        pc.addTrack(track, stream);
+      } else if (sameKindSender.track !== track) {
+        await sameKindSender.replaceTrack(track);
+      }
+    }
+
+    // Mantém os transceivers bidirecionais quando houver mídia local.
+    for (const transceiver of pc.getTransceivers()) {
+      if (transceiver.sender?.track && transceiver.direction !== 'sendrecv') {
+        try { transceiver.direction = 'sendrecv'; } catch (_) {}
+      }
+    }
   }
 
   function createPeer(targetId) {
     if (peersRef.current.has(targetId)) return peersRef.current.get(targetId);
     const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
-    localStreamRef.current?.getTracks().forEach(track => pc.addTrack(track, localStreamRef.current));
     pc.onicecandidate = e => {
       if (e.candidate) socketRef.current?.emit('webrtc-ice-candidate', { target: targetId, candidate: e.candidate });
     };
@@ -170,7 +216,15 @@ function App() {
 
   async function makeOffer(targetId) {
     const pc = createPeer(targetId);
-    const offer = await pc.createOffer();
+
+    // CRÍTICO: o participante que entra só cria a oferta depois
+    // que o microfone/câmera realmente foram anexados ao PeerConnection.
+    await attachLocalTracks(pc);
+
+    const offer = await pc.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true
+    });
     await pc.setLocalDescription(offer);
     socketRef.current.emit('webrtc-offer', { target: targetId, offer });
   }
@@ -207,6 +261,11 @@ function App() {
       const pc = createPeer(from);
       await pc.setRemoteDescription(offer);
       await flushIce(from, pc);
+
+      // Garante que quem já estava na sala também anexe sua mídia
+      // antes de responder à negociação.
+      await attachLocalTracks(pc);
+
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       socket.emit('webrtc-answer', { target: from, answer });
@@ -237,6 +296,8 @@ function App() {
 
   async function enterSelectedRoom() {
     try {
+      // Não deixa a entrada correr na frente da captura de mídia.
+      await waitForLocalMedia();
       if (!iceServersRef.current?.length) await loadIceConfig();
       const socket = await connectSocket();
       const currentMode = preCallMode;
@@ -280,6 +341,7 @@ function App() {
   }
 
   async function toggleMic() {
+    wantsMicRef.current = !micOn;
     const tracks = localStreamRef.current?.getAudioTracks() || [];
     if (!tracks.length) {
       const ok = await ensureAudio();
@@ -291,6 +353,7 @@ function App() {
   }
 
   async function toggleCam() {
+    wantsCamRef.current = !camOn;
     const tracks = localStreamRef.current?.getVideoTracks() || [];
     if (!tracks.length) {
       const ok = await ensureVideo();
