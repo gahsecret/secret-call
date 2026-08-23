@@ -62,7 +62,10 @@ function App() {
   const remoteMediaRef = useRef(new Map());
   // Compartilhamento usa PeerConnections separados da call.
   // Assim tela nunca renegocia nem altera o áudio/câmera que já estão funcionando.
-  const screenPeersRef = useRef(new Map());
+  // Tela usa conexões separadas por DIREÇÃO.
+  // Isso permite A->B e B->A simultaneamente sem uma conexão fechar a outra.
+  const outgoingScreenPeersRef = useRef(new Map());
+  const incomingScreenPeersRef = useRef(new Map());
   const pendingScreenIceRef = useRef(new Map());
   const recorderRef = useRef(null);
   const recorderChunksRef = useRef([]);
@@ -311,29 +314,63 @@ function App() {
   }
 
 
-  function queueScreenIce(peerId, candidate) {
-    if (!pendingScreenIceRef.current.has(peerId)) pendingScreenIceRef.current.set(peerId, []);
-    pendingScreenIceRef.current.get(peerId).push(candidate);
+  function screenIceKey(peerId, direction) {
+    return `${direction}:${peerId}`;
   }
 
-  async function flushScreenIce(peerId, pc) {
-    const queued = pendingScreenIceRef.current.get(peerId) || [];
+  function queueScreenIce(peerId, direction, candidate) {
+    const key = screenIceKey(peerId, direction);
+    if (!pendingScreenIceRef.current.has(key)) pendingScreenIceRef.current.set(key, []);
+    pendingScreenIceRef.current.get(key).push(candidate);
+  }
+
+  async function flushScreenIce(peerId, direction, pc) {
+    const key = screenIceKey(peerId, direction);
+    const queued = pendingScreenIceRef.current.get(key) || [];
     for (const candidate of queued) {
       try { await pc.addIceCandidate(candidate); }
       catch (e) { console.warn('Screen ICE rejeitado:', e); }
     }
-    pendingScreenIceRef.current.delete(peerId);
+    pendingScreenIceRef.current.delete(key);
   }
 
-  function createScreenPeer(targetId, receiving = false) {
-    const existing = screenPeersRef.current.get(targetId);
+  function createOutgoingScreenPeer(targetId) {
+    const existing = outgoingScreenPeersRef.current.get(targetId);
     if (existing && existing.connectionState !== 'closed') return existing;
 
     const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
+
     pc.onicecandidate = e => {
       if (e.candidate) {
         socketRef.current?.emit('screen-ice-candidate', {
           target: targetId,
+          direction: 'outgoing',
+          candidate: e.candidate
+        });
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (['failed', 'closed'].includes(pc.connectionState)) {
+        outgoingScreenPeersRef.current.delete(targetId);
+      }
+    };
+
+    outgoingScreenPeersRef.current.set(targetId, pc);
+    return pc;
+  }
+
+  function createIncomingScreenPeer(fromId) {
+    const existing = incomingScreenPeersRef.current.get(fromId);
+    if (existing && existing.connectionState !== 'closed') return existing;
+
+    const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
+
+    pc.onicecandidate = e => {
+      if (e.candidate) {
+        socketRef.current?.emit('screen-ice-candidate', {
+          target: fromId,
+          direction: 'incoming',
           candidate: e.candidate
         });
       }
@@ -343,60 +380,57 @@ function App() {
       let stream = null;
 
       setRemoteScreenStreams(prev => {
-        stream = prev[targetId] || new MediaStream();
-
+        stream = prev[fromId] || new MediaStream();
         const exists = stream.getTracks().some(t => t.id === e.track.id);
         if (!exists) stream.addTrack(e.track);
-
-        return { ...prev, [targetId]: stream };
+        return { ...prev, [fromId]: stream };
       });
 
       e.track.onended = () => {
         setRemoteScreenStreams(prev => {
-          const current = prev[targetId];
+          const current = prev[fromId];
           if (!current) return prev;
 
           try { current.removeTrack(e.track); } catch (_) {}
 
-          // Mantém o tile enquanto existir vídeo ou áudio da transmissão.
           if (current.getTracks().length === 0) {
             const next = { ...prev };
-            delete next[targetId];
+            delete next[fromId];
             return next;
           }
-
-          return { ...prev, [targetId]: current };
+          return { ...prev, [fromId]: current };
         });
       };
     };
 
     pc.onconnectionstatechange = () => {
       if (['failed', 'closed'].includes(pc.connectionState)) {
-        screenPeersRef.current.delete(targetId);
+        incomingScreenPeersRef.current.delete(fromId);
       }
     };
 
-    screenPeersRef.current.set(targetId, pc);
+    incomingScreenPeersRef.current.set(fromId, pc);
     return pc;
   }
 
   async function offerScreenTo(targetId) {
-    const track = screenStreamRef.current?.getVideoTracks()[0];
-    if (!track || targetId === socketRef.current?.id) return;
+    const displayStream = screenStreamRef.current;
+    const videoTrack = displayStream?.getVideoTracks()[0];
+    if (!videoTrack || targetId === socketRef.current?.id) return;
 
-    let pc = screenPeersRef.current.get(targetId);
+    let pc = outgoingScreenPeersRef.current.get(targetId);
+
     if (pc && ['connected', 'connecting'].includes(pc.connectionState)) return;
 
     if (pc) {
       try { pc.close(); } catch (_) {}
-      screenPeersRef.current.delete(targetId);
+      outgoingScreenPeersRef.current.delete(targetId);
     }
 
-    pc = createScreenPeer(targetId);
+    pc = createOutgoingScreenPeer(targetId);
 
-    // Envia imagem + áudio da transmissão, se o navegador disponibilizar.
-    for (const mediaTrack of screenStreamRef.current.getTracks()) {
-      pc.addTrack(mediaTrack, screenStreamRef.current);
+    for (const mediaTrack of displayStream.getTracks()) {
+      pc.addTrack(mediaTrack, displayStream);
     }
 
     const offer = await pc.createOffer();
@@ -414,16 +448,28 @@ function App() {
     }
   }
 
-  function closeScreenPeer(peerId) {
-    const pc = screenPeersRef.current.get(peerId);
+  function closeOutgoingScreenPeer(peerId) {
+    const pc = outgoingScreenPeersRef.current.get(peerId);
     try { pc?.close(); } catch (_) {}
-    screenPeersRef.current.delete(peerId);
-    pendingScreenIceRef.current.delete(peerId);
+    outgoingScreenPeersRef.current.delete(peerId);
+    pendingScreenIceRef.current.delete(screenIceKey(peerId, 'outgoing'));
+  }
+
+  function closeIncomingScreenPeer(peerId) {
+    const pc = incomingScreenPeersRef.current.get(peerId);
+    try { pc?.close(); } catch (_) {}
+    incomingScreenPeersRef.current.delete(peerId);
+    pendingScreenIceRef.current.delete(screenIceKey(peerId, 'incoming'));
     setRemoteScreenStreams(prev => {
       const next = { ...prev };
       delete next[peerId];
       return next;
     });
+  }
+
+  function closeAllScreenPeersFor(peerId) {
+    closeOutgoingScreenPeer(peerId);
+    closeIncomingScreenPeer(peerId);
   }
 
   async function connectSocket() {
@@ -497,10 +543,14 @@ function App() {
 
     socket.on('screen-offer', async ({ from, offer }) => {
       try {
-        closeScreenPeer(from);
-        const pc = createScreenPeer(from, true);
+        // Só substitui a conexão ENTRANTE daquele participante.
+        // A conexão de SAÍDA continua viva caso você também esteja compartilhando.
+        closeIncomingScreenPeer(from);
+        const pc = createIncomingScreenPeer(from);
+
         await pc.setRemoteDescription(offer);
-        await flushScreenIce(from, pc);
+        await flushScreenIce(from, 'incoming', pc);
+
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         socket.emit('screen-answer', { target: from, answer });
@@ -510,40 +560,49 @@ function App() {
     });
 
     socket.on('screen-answer', async ({ from, answer }) => {
-      const pc = screenPeersRef.current.get(from);
+      const pc = outgoingScreenPeersRef.current.get(from);
       if (!pc) return;
+
       try {
         if (!pc.currentRemoteDescription) {
           await pc.setRemoteDescription(answer);
-          await flushScreenIce(from, pc);
+          await flushScreenIce(from, 'outgoing', pc);
         }
       } catch (e) {
         console.warn('Screen answer rejeitada:', e);
       }
     });
 
-    socket.on('screen-ice-candidate', async ({ from, candidate }) => {
-      let pc = screenPeersRef.current.get(from);
-      if (!pc) {
-        queueScreenIce(from, candidate);
+    socket.on('screen-ice-candidate', async ({ from, direction, candidate }) => {
+      // A direção enviada pelo outro lado precisa ser invertida localmente:
+      // outgoing remoto -> incoming local
+      // incoming remoto -> outgoing local
+      const localDirection = direction === 'outgoing' ? 'incoming' : 'outgoing';
+      const map = localDirection === 'incoming'
+        ? incomingScreenPeersRef.current
+        : outgoingScreenPeersRef.current;
+
+      const pc = map.get(from);
+
+      if (!pc || !pc.remoteDescription) {
+        queueScreenIce(from, localDirection, candidate);
         return;
       }
-      if (!pc.remoteDescription) {
-        queueScreenIce(from, candidate);
-        return;
-      }
+
       try { await pc.addIceCandidate(candidate); }
       catch (e) { console.warn('Screen ICE rejeitado:', e); }
     });
 
     socket.on('screen-share-stopped', ({ from }) => {
-      closeScreenPeer(from);
+      // Só fecha a tela que ESTÁ SENDO RECEBIDA daquele usuário.
+      // Se você também estiver transmitindo para ele, sua saída permanece.
+      closeIncomingScreenPeer(from);
     });
 
     socket.on('user-left', ({ socketId }) => {
       peersRef.current.get(socketId)?.close();
       peersRef.current.delete(socketId);
-      closeScreenPeer(socketId);
+      closeAllScreenPeersFor(socketId);
       remoteMediaRef.current.delete(socketId);
       setRemoteStreams(prev => { const n = { ...prev }; delete n[socketId]; return n; });
       setDiagnostics(prev => { const n = { ...prev }; delete n[socketId]; return n; });
@@ -699,12 +758,16 @@ function App() {
     screenStreamRef.current?.getTracks().forEach(t => t.stop());
     screenStreamRef.current = null;
 
-    for (const [peerId, pc] of screenPeersRef.current.entries()) {
+    for (const [peerId, pc] of outgoingScreenPeersRef.current.entries()) {
       try { pc.close(); } catch (_) {}
       socketRef.current?.emit('screen-share-stop-peer', { target: peerId });
     }
-    screenPeersRef.current.clear();
-    pendingScreenIceRef.current.clear();
+    outgoingScreenPeersRef.current.clear();
+
+    // Remove somente ICE de saída; telas recebidas de outras pessoas continuam.
+    for (const key of [...pendingScreenIceRef.current.keys()]) {
+      if (key.startsWith('outgoing:')) pendingScreenIceRef.current.delete(key);
+    }
 
     if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
     socketRef.current?.emit('stop-screen-share');
@@ -814,8 +877,10 @@ function App() {
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     peersRef.current.forEach(pc => pc.close());
     peersRef.current.clear();
-    screenPeersRef.current.forEach(pc => pc.close());
-    screenPeersRef.current.clear();
+    outgoingScreenPeersRef.current.forEach(pc => pc.close());
+    incomingScreenPeersRef.current.forEach(pc => pc.close());
+    outgoingScreenPeersRef.current.clear();
+    incomingScreenPeersRef.current.clear();
     pendingScreenIceRef.current.clear();
     setRemoteScreenStreams({});
     pendingIceRef.current.clear();
