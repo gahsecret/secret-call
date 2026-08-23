@@ -15,7 +15,7 @@ app.use(cors());
 app.get('/health', (_, res) => res.json({
   ok: true,
   service: 'Secret Call',
-  version: '1.5.1',
+  version: '1.5.1.1',
   rooms: rooms?.size ?? 0
 }));
 
@@ -262,5 +262,5 @@ if (process.env.NODE_ENV === 'production' && process.env.SERVE_CLIENT !== 'false
 
 const PORT = Number(process.env.PORT || 3001);
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Secret Call V1.5.1 rodando na porta ${PORT}`);
+  console.log(`Secret Call V1.5.1.1 rodando na porta ${PORT}`);
 });
