@@ -832,7 +832,7 @@ function App() {
   }
 
   if (!joined && preCallMode) return (
-    <main className="landing">
+    <main className="landing finalLanding">
       <div className="brand brandCenter">
         <div className="secretLogo"><span>SECRET</span><small>CALL</small></div>
         <p>Antes de entrar, escolha como quer participar.</p>
@@ -859,12 +859,12 @@ function App() {
   );
 
   if (!joined) return (
-    <main className="landing">
+    <main className="landing finalLanding">
       <div className="brand brandCenter">
         <div className="secretLogo"><span>SECRET</span><small>CALL</small></div>
         <p>Call privada • até 10 pessoas • código temporário</p>
       </div>
-      <div className="joinCard">
+      <div className="joinCard finalJoinCard">
         <label>Seu nome</label>
         <input value={name} onChange={e => setName(e.target.value)} placeholder="Ex.: Gah Secret" />
         <div className="divider"><span>CRIAR</span></div>
@@ -874,7 +874,7 @@ function App() {
         <input value={codeInput} onChange={e => setCodeInput(e.target.value.toUpperCase())} maxLength={6} placeholder="ABC123" />
         <button className="secondary" onClick={joinRoom}>Entrar com código</button>
       </div>
-      <div className="features"><span>👥 10 pessoas</span><span>🖥 até 3 compartilhando</span><span>⏱ código troca em 5 min</span><span>🪟 janela para 2º monitor</span></div>
+      <div className="features finalFeatures"><span>👥 10 pessoas</span><span>🖥 até 3 compartilhando</span><span>⏱ código troca em 5 min</span><span>🪟 janela para 2º monitor</span></div>
     </main>
   );
 
@@ -1001,7 +1001,7 @@ function App() {
           </div>
         </div>
 
-        <div className="gamerBottomControls">
+        <div className="gamerBottomControls finalCompactControls">
           <button className={micOn ? 'controlActive' : ''} onClick={toggleMic}>🎙<span>Microfone</span></button>
           <button className={camOn ? 'controlActive' : ''} onClick={toggleCam}>📹<span>Câmera</span></button>
           <button className={sharing ? 'controlShare active' : 'controlShare'} onClick={shareScreen}>🖥<span>{sharing ? 'Parar tela' : 'Tela'}</span></button>

@@ -262,5 +262,5 @@ if (process.env.NODE_ENV === 'production' && process.env.SERVE_CLIENT !== 'false
 
 const PORT = Number(process.env.PORT || 3001);
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Secret Call V1.4.9 rodando na porta ${PORT}`);
+  console.log(`Secret Call V1.5.0 rodando na porta ${PORT}`);
 });
