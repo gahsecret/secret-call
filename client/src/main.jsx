@@ -763,9 +763,6 @@ function App() {
   function popout(stream, label) {
     if (!stream) return;
 
-    // A janela separada usa o mesmo MediaStream da call.
-    // O player é criado diretamente no document do popup e recebe um
-    // play() explícito, evitando a janela abrir em preto por bloqueio de autoplay.
     const w = window.open('', '_blank', 'width=1100,height=700,resizable=yes,scrollbars=no');
     if (!w) return alert('Permita pop-ups para abrir o vídeo em outra janela.');
 
@@ -783,14 +780,16 @@ function App() {
 #v{display:block;width:100%;height:100%;object-fit:contain;background:#02060a}
 .overlay{position:fixed;left:14px;right:14px;bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;pointer-events:none}
 .tag,.actions{pointer-events:auto;background:rgba(7,17,28,.90);border:1px solid rgba(112,76,255,.55);box-shadow:0 0 24px rgba(91,48,255,.18);backdrop-filter:blur(10px);border-radius:10px}
-.tag{padding:9px 13px;font-size:13px;color:#dcecff;max-width:60%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag{padding:9px 13px;font-size:13px;color:#dcecff;max-width:55%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .actions{display:flex;gap:7px;padding:6px}
 button{border:1px solid #30415e;background:#0b1220;color:#fff;border-radius:8px;padding:8px 11px;cursor:pointer;font-weight:700}
 button:hover{border-color:#7d43ff;box-shadow:0 0 12px rgba(125,67,255,.25)}
+#start{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);display:none;border-color:#704cff;background:#11182a;padding:13px 18px;border-radius:12px;font-size:14px;box-shadow:0 0 30px rgba(112,76,255,.35)}
 </style>
 </head>
 <body>
 <video id="v" autoplay playsinline></video>
+<button id="start">▶ Ativar vídeo</button>
 <div class="overlay">
   <div class="tag">${safeLabel}</div>
   <div class="actions">
@@ -802,6 +801,7 @@ button:hover{border-color:#7d43ff;box-shadow:0 0 12px rgba(125,67,255,.25)}
 const video=document.getElementById('v');
 const fs=document.getElementById('fs');
 const closeBtn=document.getElementById('close');
+const start=document.getElementById('start');
 fs.onclick=async()=>{
   try{
     if(document.fullscreenElement){await document.exitFullscreen();}
@@ -810,20 +810,38 @@ fs.onclick=async()=>{
 };
 closeBtn.onclick=()=>window.close();
 document.addEventListener('fullscreenchange',()=>{fs.textContent=document.fullscreenElement?'⛶ Sair da tela cheia':'⛶ Tela cheia';});
-window.__setStream=async(s)=>{
+async function playVideo(){
   try{
-    video.srcObject=s;
-    video.muted=false;
-    video.volume=1;
+    video.muted=true;
     await video.play();
+    start.style.display='none';
+    // O vídeo já está tocando; podemos liberar o áudio quando o navegador permitir.
+    try{video.muted=false;video.volume=1;}catch(_){ }
+    return true;
   }catch(e){
     console.warn('Reprodução do popup:',e);
-    const resume=async()=>{try{await video.play();}catch(_){}};
-    window.addEventListener('pointerdown',resume,{once:true});
-    window.addEventListener('keydown',resume,{once:true});
+    start.style.display='block';
+    return false;
+  }
+}
+start.onclick=()=>playVideo();
+window.__setStream=async(s)=>{
+  try{
+    // IMPORTANTE: o MediaStream vivo deve ser ligado diretamente ao elemento
+    // <video> da janela popup. Clonar as MediaStreamTracks em outro realm pode
+    // resultar em vídeo preto em alguns navegadores (especialmente Chromium).
+    video.srcObject = s;
+    video.muted = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.load?.();
+    await playVideo();
+  }catch(e){
+    console.warn('Não foi possível anexar a transmissão ao popup:',e);
+    start.style.display='block';
   }
 };
-window.addEventListener('beforeunload',()=>{try{video.srcObject=null;}catch(_){}});
+window.addEventListener('beforeunload',()=>{try{video.srcObject=null;}catch(_){} });
 </script>
 </body></html>`);
     w.document.close();
@@ -831,26 +849,32 @@ window.addEventListener('beforeunload',()=>{try{video.srcObject=null;}catch(_){}
     const attach = () => {
       try {
         if (w.closed) return;
-        const video = w.document.getElementById('v');
-        if (video) {
-          video.srcObject = stream;
-          video.muted = false;
-          video.volume = 1;
-          const playPromise = video.play();
-          playPromise?.catch?.(() => {
-            // Se o navegador bloquear autoplay, o primeiro clique na janela libera a reprodução.
-            w.document.addEventListener('pointerdown', () => video.play().catch(() => {}), { once: true });
-            w.document.addEventListener('keydown', () => video.play().catch(() => {}), { once: true });
-          });
+        if (typeof w.__setStream === 'function') {
+          w.__setStream(stream);
+        } else {
+          const video = w.document.getElementById('v');
+          if (video) {
+            video.srcObject = stream;
+            video.muted = true;
+            video.autoplay = true;
+            video.playsInline = true;
+            const p = video.play();
+            p?.catch?.(() => {
+              const start = w.document.getElementById('start');
+              if (start) start.style.display = 'block';
+            });
+          }
         }
         w.focus();
       } catch (e) {
         console.warn('Não foi possível anexar a transmissão ao popup:', e);
       }
     };
-    attach();
-    w.addEventListener('load', attach, { once: true });
-    setTimeout(attach, 120);
+
+    // Aguarda o documento do popup existir antes de entregar as tracks.
+    setTimeout(attach, 80);
+    setTimeout(attach, 250);
+    setTimeout(attach, 700);
   }
 
   async function toggleElementFullscreen(element) {
