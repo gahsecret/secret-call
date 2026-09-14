@@ -1272,7 +1272,7 @@ function VideoTile({ streamRef, label, muted, onPop }) {
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
-  return <div ref={tileRef} className={full ? "videoTile fullscreenTile" : "videoTile"}><video ref={streamRef} autoPlay playsInline muted={muted}/><span className="videoLabel">{label}</span><div className="tileActions"><button className="popBtn" onClick={onPop}>↗ Abrir em janela</button><button className="tileFsBtn" onClick={toggleFull} title="Tela cheia">⛶</button></div></div>;
+  return <div ref={tileRef} className={full ? "videoTile fullscreenTile" : "videoTile"}><video ref={streamRef} autoPlay playsInline muted={muted}/><span className="videoLabel">{label}</span><div className="tileActions alwaysVisibleControls"><button type="button" className="popBtn" onClick={onPop}>↗ Abrir em janela</button><button type="button" className="tileFsBtn" onClick={toggleFull} title="Tela cheia">⛶</button></div></div>;
 }
 function RemoteVideo({ stream, label, onPop, volume = 1 }) {
   const ref = useRef(null);
@@ -1307,9 +1307,9 @@ function RemoteVideo({ stream, label, onPop, volume = 1 }) {
   return <div className="videoTile">
     <video ref={ref} autoPlay playsInline/>
     <span className="videoLabel">{label}</span>
-    <div className="tileActions">
-      <button className="popBtn" onClick={onPop}>↗ Abrir em janela</button>
-      <button className="tileFsBtn" onClick={toggleFull} title="Tela cheia">⛶</button>
+    <div className="tileActions alwaysVisibleControls">
+      <button type="button" className="popBtn" onClick={onPop}>↗ Abrir em janela</button>
+      <button type="button" className="tileFsBtn" onClick={toggleFull} title="Tela cheia">⛶</button>
     </div>
   </div>;
 }

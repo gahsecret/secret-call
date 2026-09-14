@@ -1041,3 +1041,27 @@ button {
   .fixedFullscreenBtn { font-size:0; min-width:42px; }
   .fixedFullscreenBtn::first-letter { font-size:18px; }
 }
+
+
+/* V1.6.4: controles de cada participante ficam visíveis em qualquer tile,
+   inclusive no vídeo remoto. Não dependem de hover e não ficam com opacidade reduzida. */
+.gamerVideoGrid .videoTile .alwaysVisibleControls {
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: flex !important;
+  pointer-events: auto !important;
+  z-index: 50 !important;
+}
+.gamerVideoGrid .videoTile .alwaysVisibleControls .popBtn,
+.gamerVideoGrid .videoTile .alwaysVisibleControls .tileFsBtn {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  filter: none !important;
+}
+.gamerVideoGrid .videoTile .alwaysVisibleControls .popBtn {
+  position: static !important;
+}
+.gamerVideoGrid .videoTile .alwaysVisibleControls .tileFsBtn {
+  position: static !important;
+}
