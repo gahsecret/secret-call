@@ -1,4 +1,4 @@
-# Secret Call V1.6.0 — WebRTC Stable Multi-Screen
+# Secret Call V1.6.1 — WebRTC Stable Multi-Screen
 
 Base: V1.5.0 estável.
 
@@ -11,3 +11,10 @@ Correções principais:
 - parar sua tela não encerra a tela recebida do amigo.
 
 Não usa SFU externo nesta versão. Mantém P2P + TURN.
+
+
+## V1.6.1
+- Corrige a janela separada de vídeo/tela para anexar o MediaStream e chamar play() explicitamente, evitando popup preto por autoplay.
+- Adiciona botão fixo de Tela cheia no topo da call.
+- Adiciona botão de Tela cheia em cada vídeo.
+- A janela separada também possui Tela cheia opcional.

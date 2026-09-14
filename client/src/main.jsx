@@ -762,12 +762,108 @@ function App() {
 
   function popout(stream, label) {
     if (!stream) return;
-    const w = window.open('', '_blank', 'width=1100,height=700');
+
+    // A janela separada usa o mesmo MediaStream da call.
+    // O player é criado diretamente no document do popup e recebe um
+    // play() explícito, evitando a janela abrir em preto por bloqueio de autoplay.
+    const w = window.open('', '_blank', 'width=1100,height=700,resizable=yes,scrollbars=no');
     if (!w) return alert('Permita pop-ups para abrir o vídeo em outra janela.');
-    w.document.write(`<!doctype html><html><head><title>${label}</title><style>html,body{margin:0;width:100%;height:100%;background:#02060a;color:white;font-family:Arial;overflow:hidden}video{width:100%;height:100%;object-fit:contain}.tag{position:fixed;left:14px;bottom:14px;background:#07111bcc;padding:8px 12px;border-radius:9px}</style></head><body><video id="v" autoplay playsinline></video><div class="tag">${label}</div></body></html>`);
+
+    const safeLabel = String(label || 'Secret Call').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+    w.document.open();
+    w.document.write(`<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${safeLabel} • Secret Call</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:#02060a;color:#fff;font-family:Arial,sans-serif;overflow:hidden}
+#v{display:block;width:100%;height:100%;object-fit:contain;background:#02060a}
+.overlay{position:fixed;left:14px;right:14px;bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;pointer-events:none}
+.tag,.actions{pointer-events:auto;background:rgba(7,17,28,.90);border:1px solid rgba(112,76,255,.55);box-shadow:0 0 24px rgba(91,48,255,.18);backdrop-filter:blur(10px);border-radius:10px}
+.tag{padding:9px 13px;font-size:13px;color:#dcecff;max-width:60%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.actions{display:flex;gap:7px;padding:6px}
+button{border:1px solid #30415e;background:#0b1220;color:#fff;border-radius:8px;padding:8px 11px;cursor:pointer;font-weight:700}
+button:hover{border-color:#7d43ff;box-shadow:0 0 12px rgba(125,67,255,.25)}
+</style>
+</head>
+<body>
+<video id="v" autoplay playsinline></video>
+<div class="overlay">
+  <div class="tag">${safeLabel}</div>
+  <div class="actions">
+    <button id="fs" title="Tela cheia">⛶ Tela cheia</button>
+    <button id="close" title="Fechar janela">✕ Fechar</button>
+  </div>
+</div>
+<script>
+const video=document.getElementById('v');
+const fs=document.getElementById('fs');
+const closeBtn=document.getElementById('close');
+fs.onclick=async()=>{
+  try{
+    if(document.fullscreenElement){await document.exitFullscreen();}
+    else{await (video.requestFullscreen?.() || document.documentElement.requestFullscreen?.());}
+  }catch(e){console.warn('Fullscreen:',e);}
+};
+closeBtn.onclick=()=>window.close();
+document.addEventListener('fullscreenchange',()=>{fs.textContent=document.fullscreenElement?'⛶ Sair da tela cheia':'⛶ Tela cheia';});
+window.__setStream=async(s)=>{
+  try{
+    video.srcObject=s;
+    video.muted=false;
+    video.volume=1;
+    await video.play();
+  }catch(e){
+    console.warn('Reprodução do popup:',e);
+    const resume=async()=>{try{await video.play();}catch(_){}};
+    window.addEventListener('pointerdown',resume,{once:true});
+    window.addEventListener('keydown',resume,{once:true});
+  }
+};
+window.addEventListener('beforeunload',()=>{try{video.srcObject=null;}catch(_){}});
+</script>
+</body></html>`);
     w.document.close();
-    const v = w.document.getElementById('v');
-    v.srcObject = stream;
+
+    const attach = () => {
+      try {
+        if (w.closed) return;
+        const video = w.document.getElementById('v');
+        if (video) {
+          video.srcObject = stream;
+          video.muted = false;
+          video.volume = 1;
+          const playPromise = video.play();
+          playPromise?.catch?.(() => {
+            // Se o navegador bloquear autoplay, o primeiro clique na janela libera a reprodução.
+            w.document.addEventListener('pointerdown', () => video.play().catch(() => {}), { once: true });
+            w.document.addEventListener('keydown', () => video.play().catch(() => {}), { once: true });
+          });
+        }
+        w.focus();
+      } catch (e) {
+        console.warn('Não foi possível anexar a transmissão ao popup:', e);
+      }
+    };
+    attach();
+    w.addEventListener('load', attach, { once: true });
+    setTimeout(attach, 120);
+  }
+
+  async function toggleElementFullscreen(element) {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen?.();
+      } else {
+        await element?.requestFullscreen?.();
+      }
+    } catch (e) {
+      console.warn('Tela cheia:', e);
+      setToast('O navegador bloqueou a tela cheia');
+    }
   }
 
 
@@ -988,7 +1084,7 @@ function App() {
           <button className="roomCodeTop" onClick={copyInviteCode}>{roomCode} <span>⧉</span></button>
           <div className="topCount">👥 {participants.length} participantes</div>
           <button className={layoutMode === 'grid' ? 'topBtn active' : 'topBtn'} onClick={toggleLayout}>▦ Grade</button>
-          <button className="topBtn" onClick={() => document.documentElement.requestFullscreen?.()}>⛶</button>
+          <button className="topBtn fixedFullscreenBtn" onClick={() => toggleElementFullscreen(document.documentElement)} title="Tela cheia">⛶ Tela cheia</button>
           <button className="topBtn" onClick={() => setSettingsOpen(true)}>•••</button>
         </header>
 
@@ -1136,7 +1232,23 @@ function App() {
 }
 
 function VideoTile({ streamRef, label, muted, onPop }) {
-  return <div className="videoTile"><video ref={streamRef} autoPlay playsInline muted={muted}/><span className="videoLabel">{label}</span><button className="popBtn" onClick={onPop}>↗ Abrir em janela</button></div>;
+  const tileRef = useRef(null);
+  const [full, setFull] = useState(false);
+  const toggleFull = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen?.();
+      } else {
+        await tileRef.current?.requestFullscreen?.();
+      }
+    } catch (_) {}
+  };
+  useEffect(() => {
+    const onChange = () => setFull(document.fullscreenElement === tileRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  return <div ref={tileRef} className={full ? "videoTile fullscreenTile" : "videoTile"}><video ref={streamRef} autoPlay playsInline muted={muted}/><span className="videoLabel">{label}</span><div className="tileActions"><button className="popBtn" onClick={onPop}>↗ Abrir em janela</button><button className="tileFsBtn" onClick={toggleFull} title="Tela cheia">⛶</button></div></div>;
 }
 function RemoteVideo({ stream, label, onPop, volume = 1 }) {
   const ref = useRef(null);
@@ -1160,10 +1272,21 @@ function RemoteVideo({ stream, label, onPop, volume = 1 }) {
     });
   }, [stream, volume]);
 
+  const toggleFull = async () => {
+    try {
+      const tile = ref.current?.closest('.videoTile');
+      if (document.fullscreenElement) await document.exitFullscreen?.();
+      else await tile?.requestFullscreen?.();
+    } catch (_) {}
+  };
+
   return <div className="videoTile">
     <video ref={ref} autoPlay playsInline/>
     <span className="videoLabel">{label}</span>
-    <button className="popBtn" onClick={onPop}>↗ Abrir em janela</button>
+    <div className="tileActions">
+      <button className="popBtn" onClick={onPop}>↗ Abrir em janela</button>
+      <button className="tileFsBtn" onClick={toggleFull} title="Tela cheia">⛶</button>
+    </div>
   </div>;
 }
 
