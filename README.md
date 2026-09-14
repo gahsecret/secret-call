@@ -18,3 +18,6 @@ Não usa SFU externo nesta versão. Mantém P2P + TURN.
 - Adiciona botão fixo de Tela cheia no topo da call.
 - Adiciona botão de Tela cheia em cada vídeo.
 - A janela separada também possui Tela cheia opcional.
+
+## V1.6.5
+Correção específica dos controles dos cards: botão de tela cheia agora é um elemento independente, com largura fixa e ícone CSS, sempre visível ao lado de Abrir em janela. Não depende de fonte Unicode nem de hover.
