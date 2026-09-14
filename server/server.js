@@ -236,14 +236,14 @@ io.on('connection', socket => {
   });
   // Canal de sinalização separado para compartilhamento de tela.
   // Isso impede a tela de renegociar/quebrar o PeerConnection de áudio/câmera.
-  socket.on('screen-offer', ({ target, offer }) => {
-    io.to(target).emit('screen-offer', { from: socket.id, offer });
+  socket.on('screen-offer', ({ target, direction, offer }) => {
+    io.to(target).emit('screen-offer', { from: socket.id, direction, offer });
   });
-  socket.on('screen-answer', ({ target, answer }) => {
-    io.to(target).emit('screen-answer', { from: socket.id, answer });
+  socket.on('screen-answer', ({ target, direction, answer }) => {
+    io.to(target).emit('screen-answer', { from: socket.id, direction, answer });
   });
-  socket.on('screen-ice-candidate', ({ target, candidate }) => {
-    io.to(target).emit('screen-ice-candidate', { from: socket.id, candidate });
+  socket.on('screen-ice-candidate', ({ target, direction, candidate }) => {
+    io.to(target).emit('screen-ice-candidate', { from: socket.id, direction, candidate });
   });
   socket.on('screen-share-stop-peer', ({ target }) => {
     io.to(target).emit('screen-share-stopped', { from: socket.id });
@@ -262,5 +262,5 @@ if (process.env.NODE_ENV === 'production' && process.env.SERVE_CLIENT !== 'false
 
 const PORT = Number(process.env.PORT || 3001);
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Secret Call V1.5.0 rodando na porta ${PORT}`);
+  console.log(`Secret Call V1.6.0 rodando na porta ${PORT}`);
 });
